@@ -46,7 +46,7 @@ ndw.py               DOT-NL client — TTL cache, stale fallback, bbox validatio
 store.py             SQLite history, one row per polled minute
 templates/index.html the dashboard (no build step, no CDN, inline CSS/JS)
 seed_demo.py         synthetic history, for looking at charts before data accrues
-test_app.py          14 tests, no network (NDW_FIXTURE stands in)
+test_app.py          15 tests, no network (NDW_FIXTURE stands in)
 fixture.json         a real recorded NDW response
 archive/             the browser-only attempts that preceded this — see below
 docs/investigation.md how each data source was tested and what it returned
@@ -69,22 +69,27 @@ docstring. Nothing is hardcoded except the NDW base URL.
 ## State: verified vs not
 
 Verified in the building session:
-- 14 tests green; ruff clean; a real gunicorn run driven through a headless browser
+- 15 tests green; ruff clean; a real gunicorn run driven through a headless browser
   (hero count, socket pips, 96 bucketed history bars from 288 observations, the
   12h/48h/7d switch, table view, the by-hour panel appearing only past 24h of span).
 - The NDW response shape, from a live call and from Jan's own `curl`.
 
-**Not verified: the live HTTP call from the app itself.** The building container's
-egress was restricted to package registries and GitHub, so every test ran against
-`fixture.json` via `NDW_FIXTURE`. First real run on a machine that can reach NDW is
-the moment that path is exercised. `/healthz` reports it honestly.
+**The live HTTP call is now verified too** (2 Sep 2026). The building container's
+egress was restricted, so everything up to that point ran against `fixture.json`;
+the first run from an unrestricted machine exercised the real path end to end —
+`/api/current`, `/api/history`, `/healthz` and the dashboard all served live data,
+with `/healthz` reporting `fixture: false, last_error: null`.
+
+That run found one defect, since fixed: NDW publishes an AAAA record that
+blackholes, which cost 15s on every cache miss. See `docs/investigation.md` §7.
 
 ## Known data quirks
 
 - `last_updated` is when the operator last reported a **change**, not when we asked.
   It sat unchanged for 78 minutes across two observations on 2 Sep 2026 — that is
   not necessarily staleness, and the dashboard deliberately shows it as the
-  operator's timestamp rather than disguising it as freshness.
+  operator's timestamp rather than disguising it as freshness. The live run later
+  the same day saw it five minutes fresh, which confirms it does move.
 - Availability is grouped by power level, not per socket. "3 of 5 free at 7.4 kW" is
   the finest grain available; individual sockets are not identified in this feed.
 - NDW and ChargeFinder disagreed on the 22 kW socket at the same moment (NDW: free,
@@ -93,14 +98,15 @@ the moment that path is exercised. `/healthz` reports it honestly.
 
 ## Next steps, in rough order of value
 
-1. **Run it against the real API** and watch `/healthz`.
-2. **Tariffs.** Each group carries `tariff_ids` (e.g. `417371606`) that resolve
+1. **Tariffs.** Each group carries `tariff_ids` (e.g. `417371606`) that resolve
    against `https://opendata.ndw.nu/charging_point_tariffs_ocpi.json.gz`. That gives
    real prices — something no earlier approach produced. Biggest single win.
-3. **Widen the bbox** to include the Allego chargers on Tarthorst; the station
+2. **Widen the bbox** to include the Allego chargers on Tarthorst; the station
    picker already handles multiple stations.
-4. Deploy to k3s (volume at `/data`, else history dies with the container).
-5. Ask NDW for a CORS header — a long shot that would obsolete the server.
+3. Deploy to k3s (volume at `/data`, else history dies with the container).
+4. Mail mail@servicedeskndw.nu about two things: the missing CORS header (a long
+   shot that would obsolete this server) and the blackholed AAAA record on
+   `dotnl.ndw.nu`, which is a straightforward bug report.
 
 ## archive/
 

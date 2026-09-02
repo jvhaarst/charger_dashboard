@@ -102,6 +102,53 @@ it; a server can. Hence this app.
 
 `opendata.ndw.nu` (the bulk gzipped OCPI files) behaves the same way.
 
+## 7. Running it live — verified, and one defect found
+
+First run against the real API from a machine with unrestricted egress, on
+2 September 2026. The app's own client path works: `/api/current`, `/api/history`,
+`/healthz` and the dashboard all served real data (`2 of 6 free`, `last_updated`
+five minutes old), and `/healthz` reported `fixture: false, last_error: null`.
+
+Incidentally this settles one of the open questions: `last_updated` does move. The
+78-minute freeze recorded earlier was the operator not reporting a *change*, not a
+dead feed.
+
+### The 15-second fetch
+
+Every cache-miss fetch took 15.08s, while `curl` to the same URL took 0.25s.
+
+Root cause: `dotnl.ndw.nu` (CNAME `rt.ndw.nu`) publishes both an A record,
+`128.251.236.183`, and an AAAA record, `2603:1020:203:14::74`. **The IPv6 address
+silently drops packets on 443** — the connect never completes and never refuses.
+`getaddrinfo` returns it first, per RFC 6724, and `socket.create_connection` —
+which urllib3 and therefore `requests` sit on — tries each address in turn
+applying the full timeout to *each* one. So the whole budget was spent on the
+dead address before IPv4 was tried, which then answered in ~50ms.
+
+`curl` escapes this by implementing Happy Eyeballs (RFC 8305), racing both
+families with a 200ms head start. Python has no equivalent in the stdlib.
+
+Evidence:
+
+- Total time tracked the timeout parameter exactly — `timeout=3.0` → 3.06s,
+  `timeout=8.0` → 8.05s, `timeout=15.0` → 15.08s.
+- `curl -6` → connect never completes; `curl -4` → 200 in 0.035s.
+- `nc -6 -z -w 5 2603:1020:203:14::74 443` → timeout.
+- IPv6 from the same machine to `ipv6.google.com`, `api.github.com` and
+  `cloudflare.com` all connect in ~27ms, so local IPv6 is healthy. The fault is
+  NDW's, and any IPv6-capable host will hit it — including the Pi k3s nodes.
+
+Fixed by splitting the scalar timeout into `(CONNECT_TIMEOUT, READ_TIMEOUT)` =
+`(3.05, 15.0)` in `ndw.py`. Because the connect timeout applies per address, the
+dead attempt is capped at ~3s rather than 15, IPv6 keeps working if NDW ever fixes
+the record, and no IPv4 pinning is baked in. Live cold fetch went 15.08s → 3.11s,
+reproducible across runs.
+
+Pinning `AF_INET` through a `requests` adapter would remove the remaining 3s
+entirely, at the cost of disabling IPv6 permanently. Not done — the record is
+NDW's bug to fix, and worth raising with mail@servicedeskndw.nu alongside the
+CORS ask.
+
 ## Sources
 
 - <https://docs.ndw.nu/data-uitwisseling/interface-beschrijvingen/dafne-api/>

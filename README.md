@@ -77,7 +77,7 @@ asked — so a stale feed is visible rather than disguised.
 ## Development
 
 ```
-uv run pytest -q          # 14 tests, no network needed
+uv run pytest -q          # 15 tests, no network needed
 uv run ruff check .
 uv run ruff format .
 ```
