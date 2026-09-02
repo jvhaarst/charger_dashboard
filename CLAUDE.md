@@ -48,6 +48,7 @@ request given the AFIR mandate, and worth doing.
 ```
 app.py               Flask: routes, background poller, config from env
 ndw.py               DOT-NL client — TTL cache, stale fallback, bbox validation
+ocpi.py              which sockets are dead, streamed from the bulk OCPI file
 store.py             SQLite history, one row per polled minute
 templates/index.html the dashboard (no build step, no CDN, inline CSS/JS)
 seed_demo.py         synthetic history, for looking at charts before data accrues
@@ -102,9 +103,12 @@ blackholes, which cost 15s on every cache miss. See `docs/investigation.md` §7.
   5 free at 7.4 kW" is its finest grain. The **bulk OCPI file** does identify
   individual sockets (`evse_id`, `physical_reference`, per-socket status), which
   is not what this brief originally claimed. See `docs/investigation.md` §9.
-- "Available" counts only `AVAILABLE`. Sockets reporting `UNKNOWN` are lumped in
-  with the occupied ones, so "2 of 6 free" can mean 2 free, 0 occupied and 4
-  unknown — 50five's sockets sit at UNKNOWN for days at a time.
+- The bbox feed's "available" counts only `AVAILABLE`, so its not-free remainder
+  mixes occupied sockets with silent ones. `ocpi.py` separates them: it fetches
+  only the *dead* set (UNKNOWN/OUTOFORDER/INOPERATIVE) from the bulk file on a
+  slow cycle, and in-use falls out as `total - free - dead` from the fast feed.
+  That split is deliberate — dead is slow-moving, charging is not, so the 18 MB
+  file is fetched hourly rather than every poll.
 - NDW and ChargeFinder once disagreed on the 22 kW socket, and ChargeFinder had
   been blind to two sockets for days. **Settled:** neither is wrong — the operator
   stops reporting individual sockets for days, and the two sources merely present

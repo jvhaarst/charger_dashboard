@@ -41,6 +41,18 @@
   .pips { margin-left: auto; display: flex; gap: 3px; }
   .pip { width: 14px; height: 22px; border-radius: 3px; background: var(--track); }
   .pip.free { background: var(--good); }
+  .pip.busy { background: var(--bad); }
+  /* Dead sockets get a hatch as well as a colour, so the three states stay
+     distinguishable without relying on hue. */
+  .pip.dead {
+    background: repeating-linear-gradient(135deg,
+      var(--track), var(--track) 3px, var(--line) 3px, var(--line) 6px);
+    border: 1px solid var(--line);
+  }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 12px; font-size: 12px; color: var(--muted); }
+  .legend span { display: inline-flex; align-items: center; gap: 5px; }
+  .legend i { width: 10px; height: 14px; border-radius: 2px; display: inline-block; }
+  .breakdown { color: var(--muted); font-size: 13px; }
   .bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   button, select {
     font: inherit; font-size: 14px; padding: 6px 12px; border-radius: 8px;
@@ -85,6 +97,7 @@
       <span class="stamp" id="hero-time" style="margin-left:auto"></span>
     </div>
     <div id="groups" style="margin-top:14px"></div>
+    <div class="legend" id="legend" hidden></div>
   </div>
 
   <div class="card">
@@ -124,6 +137,7 @@ const BBOX = {{ bbox | tojson }};
 let stations = [];
 let current = null;
 let hours = 48;
+let socketsAt = null;
 let history = [];
 
 const $ = (id) => document.getElementById(id);
@@ -150,6 +164,7 @@ async function loadCurrent() {
   if (!res.ok) throw new Error(data.error || "HTTP " + res.status);
   $("error").hidden = true;
   stations = data.stations || [];
+  socketsAt = data.sockets_at || null;
   if (!stations.length) {
     $("subtitle").textContent = "No charge points in this bounding box.";
     return;
@@ -171,30 +186,59 @@ async function loadCurrent() {
 
   $("groups").innerHTML = station.groups
     .map((g) => {
-      const notFree = g.total - g.available;
-      const pipTitle = notFree
-        ? `${g.available} of ${g.total} free — the other ${notFree} are in use or not reporting`
-        : `all ${g.total} free`;
-      const pips = Array.from({ length: g.total }, (_, i) =>
-        `<span class="pip${i < g.available ? " free" : ""}"></span>`).join("");
+      // dead is present only when the OCPI snapshot could be read; without it
+      // fall back to the two-state view, which is all the bbox feed supports.
+      const known = Number.isInteger(g.dead);
+      const dead = known ? g.dead : 0;
+      const busy = known ? g.in_use : g.total - g.available;
+      const pips = Array.from({ length: g.total }, (_, i) => {
+        const cls = i < g.available ? "free"
+          : known && i < g.available + busy ? "busy"
+          : known ? "dead" : "";
+        const what = cls === "free" ? "free"
+          : cls === "busy" ? "in use"
+          : cls === "dead" ? "not reporting" : "not free";
+        return `<span class="pip ${cls}" title="${esc(what)}"></span>`;
+      }).join("");
+      const parts = known
+        ? [`${g.available} free`, busy ? `${busy} in use` : null,
+           dead ? `${dead} not reporting` : null].filter(Boolean)
+        : [`${g.available} of ${g.total} free`];
+      const pipTitle = parts.join(" · ");
       return `<div class="grp">
         <div>
           <div class="grp-name">${g.available} of ${g.total} free</div>
           <div class="grp-meta">${g.power_kw} kW · ${esc(g.power_type || "")} · ${esc((g.connector || "").replace("IEC_62196_", ""))}</div>
+          ${known && (busy || dead) ? `<div class="breakdown">${esc(pipTitle)}</div>` : ""}
         </div>
         <div class="pips" title="${esc(pipTitle)}">${pips}</div>
       </div>`;
     })
     .join("");
 
+  const anyKnown = station.groups.some((g) => Number.isInteger(g.dead));
+  $("legend").hidden = !anyKnown;
+  if (anyKnown) {
+    $("legend").innerHTML =
+      `<span><i class="pip free" style="height:14px"></i> free</span>` +
+      `<span><i class="pip busy" style="height:14px"></i> in use</span>` +
+      `<span><i class="pip dead" style="height:14px"></i> not reporting</span>` +
+      (socketsAt ? `<span style="margin-left:auto">socket detail ${esc(ago(socketsAt))}</span>` : "");
+  }
+
   $("source").innerHTML =
     "NDW DOT-NL, the Dutch national access point (free under AFIR). Bounding box <code>" +
     esc(BBOX) + "</code>. <code>last_updated</code> is when the operator last reported a change, " +
     "not when this page last asked." +
-    "<p style='margin:8px 0 0'>This feed reports how many sockets are <em>free</em>, and nothing " +
-    "more. A socket that is not free may be in use, or may simply have stopped reporting — " +
-    "operators go quiet on individual sockets for days at a time. Read the grey marks as " +
-    "&ldquo;not free&rdquo;, not as &ldquo;occupied&rdquo;.</p>";
+    (anyKnown
+      ? "<p style='margin:8px 0 0'>Which sockets are <em>in use</em> and which have simply " +
+        "stopped reporting comes from NDW's bulk OCPI file, refreshed far less often than the " +
+        "free count above — operators go quiet on individual sockets for days at a time, so " +
+        "that detail moves slowly.</p>"
+      : "<p style='margin:8px 0 0'>This feed reports how many sockets are <em>free</em>, and " +
+        "nothing more. A socket that is not free may be in use, or may simply have stopped " +
+        "reporting. Read the grey marks as &ldquo;not free&rdquo;, not as " +
+        "&ldquo;occupied&rdquo;.</p>");
 }
 
 async function loadHistory() {

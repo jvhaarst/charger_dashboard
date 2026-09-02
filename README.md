@@ -36,6 +36,8 @@ All environment variables, all optional:
 | `NDW_POLL_SECONDS` | `300` | How often an observation is recorded. |
 | `NDW_CACHE_SECONDS` | `60` | How long a fetched response counts as fresh. NDW updates within a minute of a change, so going below this only adds load. |
 | `NDW_MERGE_METRES` | `10` | Stations of the *same* operator closer than this are shown as one site. Operators register each post separately, so one location can arrive as several features. `0` shows every registered station. |
+| `NDW_OCPI_SECONDS` | `3600` | How often to refresh which sockets are *dead* (not reporting, out of order) from NDW's bulk OCPI file. `0` disables it and the page falls back to plain free/not-free. Each refresh downloads ~18 MB. |
+| `NDW_OCPI_FIXTURE` | – | Read this gzipped OCPI file instead of downloading. Tests and offline demos. |
 | `NDW_DB` | `data/history.sqlite3` | History database. |
 | `NDW_CACHE_DIR` | `data/cache` | On-disk response cache. |
 | `NDW_RETAIN_DAYS` | `90` | History retention; `0` keeps everything. |
@@ -97,6 +99,11 @@ The tests run against `fixture.json`, a real recorded response.
 - Availability arrives grouped by power level, not per socket — you get "3 of 5
   free at 7.4 kW", not which specific socket. The bulk OCPI file *does* identify
   sockets; see `docs/investigation.md` §9.
+- The not-free sockets are split into **in use** and **not reporting**. Only the
+  second half comes from the slow OCPI file — a socket that is dead stays dead
+  for days, whereas charging is volatile — so *in use* is derived as
+  `total - free - dead` against the live free count, and clamped so it can never
+  go negative when a dead socket comes back.
 - Co-located stations of one operator are merged into a single site
   (`NDW_MERGE_METRES`). Different operators are never merged — metres-apart
   Allego and Vattenfall listings may be one post registered twice, and merging

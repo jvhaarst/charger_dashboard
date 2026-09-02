@@ -302,6 +302,21 @@ naive `json.load` of it peaks at 1.23 GB RSS against the pod's 256 Mi limit, so
 any integration needs a streaming parser and a much slower poll than the bbox
 feed.
 
+That integration now exists as `ocpi.py`. It fetches only the *dead* set —
+`UNKNOWN`, `OUTOFORDER`, `INOPERATIVE` — because those are the slow-moving
+states, and derives in-use as `total - free - dead` from the fast bbox count.
+Age of last status change nationally, which is what justifies the split:
+
+```
+status         <1h    1-24h    1-7d     >7d
+CHARGING        9%      85%      5%      1%     volatile — never fetched
+UNKNOWN         1%      56%     15%     28%
+OUTOFORDER      3%      25%     21%     51%     very persistent
+INOPERATIVE     0%      26%     49%     25%
+```
+
+Streaming the file for four stations costs 1.3 s and 68 MB peak.
+
 ## Sources
 
 - <https://docs.ndw.nu/data-uitwisseling/interface-beschrijvingen/dafne-api/>
