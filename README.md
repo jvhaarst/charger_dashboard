@@ -54,9 +54,13 @@ the Allego chargers on Tarthorst are a few hundred metres further out.
 ## Deploying
 
 ```
-docker build -t ndw-charger-dashboard .
-docker run -p 8000:8000 -v ndw-data:/data ndw-charger-dashboard
+docker build -t charger_dashboard .
+docker run -p 8000:8000 -v ndw-data:/data charger_dashboard
 ```
+
+Published images: `ghcr.io/jvhaarst/charger_dashboard`. The Helm chart that runs
+it on k3s lives in
+[charger_dashboard_k8s](https://github.com/jvhaarst/charger_dashboard_k8s).
 
 `.github/workflows/docker-publish.yaml` lints, tests, then publishes a
 multi-arch image (amd64 + arm64) to GHCR on push to `main`, versioned from
