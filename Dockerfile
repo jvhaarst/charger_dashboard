@@ -12,7 +12,10 @@ WORKDIR /app
 COPY pyproject.toml uv.lock* ./
 RUN uv sync --no-dev --frozen --no-install-project 2>/dev/null || uv sync --no-dev
 
-COPY app.py ndw.py store.py ./
+# Every module, not a list that a new file can be forgotten from — which is
+# exactly how ocpi.py shipped missing. .dockerignore keeps test_app.py and
+# seed_demo.py out.
+COPY *.py ./
 COPY templates/ ./templates/
 
 # History and the response cache live here; mount a volume to keep them.
