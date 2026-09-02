@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gzip
 import json
 import os
 from pathlib import Path
@@ -9,6 +10,7 @@ from pathlib import Path
 import pytest
 
 import ndw
+import ocpi
 
 FIXTURE = Path(__file__).with_name("fixture.json")
 
@@ -192,6 +194,126 @@ def test_fetch_bounds_the_connect_timeout_separately(tmp_path, monkeypatch):
     connect, read = seen["timeout"]
     assert connect < read, "connect budget must be separate from the read budget"
     assert connect <= 5, f"connect timeout {connect}s lets a dead address stall us"
+
+
+def _evse(status, power_type="AC_1_PHASE"):
+    return {
+        "evse_id": f"NL505E{status}",
+        "status": status,
+        "connectors": [{"power_type": power_type, "max_amperage": 32}],
+    }
+
+
+def _ocpi_bulk(tmp_path, locations):
+    """A gzipped OCPI locations array, the shape opendata.ndw.nu serves."""
+    path = tmp_path / "locations.json.gz"
+    with gzip.open(path, "wt", encoding="utf-8") as handle:
+        json.dump(locations, handle)
+    return path
+
+
+def test_ocpi_id_strips_the_country_and_cpo_prefix():
+    assert ocpi.ocpi_id("NL-LMS-91107050") == "91107050"
+    # Qwello ids are UUIDs, which contain the separator themselves.
+    assert (
+        ocpi.ocpi_id("NL-QWC-631dc33b-24f8-4fb3-9400-51a9782025f1")
+        == "631dc33b-24f8-4fb3-9400-51a9782025f1"
+    )
+
+
+def test_extract_keeps_only_the_wanted_stations(tmp_path):
+    path = _ocpi_bulk(
+        tmp_path,
+        [
+            {"id": "aaa", "evses": [_evse("AVAILABLE")]},
+            {"id": "91107050", "evses": [_evse("UNKNOWN")]},
+            {"id": "zzz", "evses": [_evse("CHARGING")]},
+        ],
+    )
+    snapshot = ocpi.extract(path, {"91107050"})
+    assert set(snapshot) == {"91107050"}
+
+
+def test_extract_counts_dead_sockets_per_power_type(tmp_path):
+    path = _ocpi_bulk(
+        tmp_path,
+        [
+            {
+                "id": "s1",
+                "evses": [
+                    _evse("AVAILABLE", "AC_1_PHASE"),
+                    _evse("UNKNOWN", "AC_1_PHASE"),
+                    _evse("OUTOFORDER", "AC_1_PHASE"),
+                    _evse("CHARGING", "AC_3_PHASE"),
+                    _evse("INOPERATIVE", "AC_3_PHASE"),
+                ],
+            }
+        ],
+    )
+    groups = ocpi.extract(path, {"s1"})["s1"]
+    # UNKNOWN + OUTOFORDER are dead; CHARGING is not.
+    assert groups["AC1"]["dead"] == 2
+    assert groups["AC3"]["dead"] == 1
+
+
+def test_extract_ignores_removed_and_planned_sockets(tmp_path):
+    path = _ocpi_bulk(
+        tmp_path,
+        [{"id": "s1", "evses": [_evse("REMOVED"), _evse("PLANNED"), _evse("UNKNOWN")]}],
+    )
+    assert ocpi.extract(path, {"s1"})["s1"]["AC1"]["dead"] == 1
+
+
+def test_annotate_splits_the_not_free_sockets():
+    stations = [
+        {
+            "id": "NL-LMS-x",
+            "members": ["NL-LMS-x"],
+            "groups": [{"power_type": "AC1", "available": 3, "total": 6}],
+        }
+    ]
+    ocpi.annotate(stations, {"x": {"AC1": {"dead": 2}}})
+    group = stations[0]["groups"][0]
+    assert (group["available"], group["dead"], group["in_use"]) == (3, 2, 1)
+
+
+def test_annotate_clamps_when_a_dead_socket_came_back():
+    # The hourly snapshot says 2 dead, but the live feed already counts them free.
+    stations = [
+        {
+            "id": "NL-LMS-x",
+            "members": ["NL-LMS-x"],
+            "groups": [{"power_type": "AC1", "available": 6, "total": 6}],
+        }
+    ]
+    ocpi.annotate(stations, {"x": {"AC1": {"dead": 2}}})
+    group = stations[0]["groups"][0]
+    assert (group["dead"], group["in_use"]) == (0, 0), "in_use must never go negative"
+
+
+def test_annotate_sums_across_the_members_of_a_merged_site():
+    stations = [
+        {
+            "id": "NL-QWC-a",
+            "members": ["NL-QWC-a", "NL-QWC-b"],
+            "groups": [{"power_type": "AC3", "available": 2, "total": 4}],
+        }
+    ]
+    ocpi.annotate(stations, {"a": {"AC3": {"dead": 1}}, "b": {"AC3": {"dead": 1}}})
+    group = stations[0]["groups"][0]
+    assert (group["dead"], group["in_use"]) == (2, 0)
+
+
+def test_annotate_leaves_stations_untouched_without_a_snapshot():
+    stations = [
+        {
+            "id": "NL-LMS-x",
+            "members": ["NL-LMS-x"],
+            "groups": [{"power_type": "AC1", "available": 3, "total": 6}],
+        }
+    ]
+    ocpi.annotate(stations, {})
+    assert "dead" not in stations[0]["groups"][0]
 
 
 def test_store_ignores_a_minute_it_already_has(tmp_path):
