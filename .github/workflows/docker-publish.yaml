@@ -63,6 +63,41 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Build one arch locally and actually run it before publishing anything.
+      # A dependency missing from the image is invisible to unit tests — it only
+      # shows up as a crash-looping pod.
+      - name: Build amd64 image for smoke test
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: smoke:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test the image
+        run: |
+          # NDW_FIXTURE keeps this off the network, so an NDW outage cannot fail
+          # the build; fixture.json is not in the image, so mount it in.
+          docker run -d --name smoke -p 8000:8000 \
+            -v "$PWD/fixture.json:/tmp/fixture.json:ro" \
+            -e NDW_FIXTURE=/tmp/fixture.json \
+            smoke:latest
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/healthz > /tmp/health.json; then
+              echo "healthy after ${i}s"; break
+            fi
+            sleep 1
+          done
+          docker logs smoke
+          test -s /tmp/health.json || { echo "::error::image never became healthy"; exit 1; }
+          jq -e '.ok == true' /tmp/health.json
+          curl -fsS http://127.0.0.1:8000/api/current | jq -e '.stations | length > 0'
+          curl -fsS http://127.0.0.1:8000/ | grep -q 'Charge point availability'
+          docker rm -f smoke
+
       - name: Build and push (multi-arch)
         uses: docker/build-push-action@v7
         with:
