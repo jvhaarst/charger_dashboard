@@ -35,6 +35,7 @@ All environment variables, all optional:
 | `NDW_BBOX` | `5.655835,51.980796,5.670791,51.989109` | `minLon,minLat,maxLon,maxLat`. The API caps a box at 1.0 degree² and 1000 features. |
 | `NDW_POLL_SECONDS` | `300` | How often an observation is recorded. |
 | `NDW_CACHE_SECONDS` | `60` | How long a fetched response counts as fresh. NDW updates within a minute of a change, so going below this only adds load. |
+| `NDW_MERGE_METRES` | `10` | Stations of the *same* operator closer than this are shown as one site. Operators register each post separately, so one location can arrive as several features. `0` shows every registered station. |
 | `NDW_DB` | `data/history.sqlite3` | History database. |
 | `NDW_CACHE_DIR` | `data/cache` | On-disk response cache. |
 | `NDW_RETAIN_DAYS` | `90` | History retention; `0` keeps everything. |
@@ -90,8 +91,12 @@ The tests run against `fixture.json`, a real recorded response.
 - `last_updated` is when the operator last reported a *change*. It can sit
   unchanged for a long time; that's not necessarily staleness.
 - Availability arrives grouped by power level, not per socket — you get "3 of 5
-  free at 7.4 kW", not which specific socket. Sockets are not individually
-  identified in this feed.
+  free at 7.4 kW", not which specific socket. The bulk OCPI file *does* identify
+  sockets; see `docs/investigation.md` §9.
+- Co-located stations of one operator are merged into a single site
+  (`NDW_MERGE_METRES`). Different operators are never merged — metres-apart
+  Allego and Vattenfall listings may be one post registered twice, and merging
+  those would double-count sockets.
 - `tariff_ids` reference NDW's bulk OCPI tariff file
   (`https://opendata.ndw.nu/charging_point_tariffs_ocpi.json.gz`), which is not
   wired up here. That's the obvious next feature: real prices per station.

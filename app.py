@@ -12,6 +12,8 @@ Configuration is environment-only:
     NDW_BBOX           minLon,minLat,maxLon,maxLat (default: Akkermaalsbos 2)
     NDW_POLL_SECONDS   how often to record an observation (default 300)
     NDW_CACHE_SECONDS  how long a fetched response stays fresh (default 60)
+    NDW_MERGE_METRES   fold one operator's stations this close into one site
+                       (default 10; 0 shows every registered station)
     NDW_DB             SQLite path (default data/history.sqlite3)
     NDW_CACHE_DIR      response cache directory (default data/cache)
     NDW_RETAIN_DAYS    history retention, 0 keeps everything (default 90)
@@ -51,6 +53,7 @@ def create_app() -> Flask:
         BBOX=ndw.default_bbox(),
         POLL_SECONDS=_int_env("NDW_POLL_SECONDS", 300),
         CACHE_SECONDS=_int_env("NDW_CACHE_SECONDS", 60),
+        MERGE_METRES=_int_env("NDW_MERGE_METRES", 10),
         RETAIN_DAYS=_int_env("NDW_RETAIN_DAYS", 90),
         CACHE_DIR=Path(os.environ.get("NDW_CACHE_DIR", "data/cache")),
         FIXTURE=os.environ.get("NDW_FIXTURE") or None,
@@ -100,7 +103,7 @@ def create_app() -> Flask:
             {
                 "fetched_at": datetime.now(UTC).isoformat(timespec="seconds"),
                 "bbox": app.config["BBOX"],
-                "stations": ndw.parse(collection),
+                "stations": ndw.parse(collection, app.config["MERGE_METRES"]),
             }
         )
 
@@ -111,7 +114,7 @@ def create_app() -> Flask:
         since = int(time.time() // 60) - hours * 60
         series = []
         for minute, collection in store.history(since):
-            for station in ndw.parse(collection):
+            for station in ndw.parse(collection, app.config["MERGE_METRES"]):
                 if station_id and station["id"] != station_id:
                     continue
                 series.append(

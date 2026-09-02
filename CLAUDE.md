@@ -95,6 +95,10 @@ blackholes, which cost 15s on every cache miss. See `docs/investigation.md` §7.
   not necessarily staleness, and the dashboard deliberately shows it as the
   operator's timestamp rather than disguising it as freshness. The live run later
   the same day saw it five minutes fresh, which confirms it does move.
+- One site can arrive as several features: operators register each post
+  separately. Same-operator stations within `NDW_MERGE_METRES` (default 10) are
+  folded into one, with a `members` list naming the originals. Different
+  operators are deliberately never merged — see `docs/investigation.md` §9.
 - The **bbox endpoint** groups availability by power level, not per socket — "3 of
   5 free at 7.4 kW" is its finest grain. The **bulk OCPI file** does identify
   individual sockets (`evse_id`, `physical_reference`, per-socket status), which
