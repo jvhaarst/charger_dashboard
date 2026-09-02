@@ -53,7 +53,6 @@ templates/index.html the dashboard (no build step, no CDN, inline CSS/JS)
 seed_demo.py         synthetic history, for looking at charts before data accrues
 test_app.py          15 tests, no network (NDW_FIXTURE stands in)
 fixture.json         a real recorded NDW response
-archive/             the browser-only attempts that preceded this — see below
 docs/investigation.md how each data source was tested and what it returned
 ```
 
@@ -124,24 +123,17 @@ blackholes, which cost 15s on every cache miss. See `docs/investigation.md` §7.
    shot that would obsolete this server) and the blackholed AAAA record on
    `dotnl.ndw.nu`, which is a straightforward bug report.
 
-## archive/
+## archive/ — removed
 
-The browser-only attempts, kept because they still work and because they document
-why the server exists. All of these read **ChargeFinder**, not NDW.
+The browser-only ChargeFinder attempts (a self-contained viewer page, a grabber
+bookmarklet and userscript, and a stdlib proxy) lived here until they were
+deleted. They were kept for one reason: per-socket detail that NDW was believed
+not to publish. NDW's bulk OCPI file does publish it, with EVSE ids matching
+ChargeFinder's exactly (`docs/investigation.md` §9), so the reason expired.
 
-- `chargefinder.html` — single self-contained page: viewer, localStorage history,
-  and it hands you the grabber bookmarklet and userscript from inside itself.
-- `chargefinder-bookmarklet.txt` — the grabber, minified, as a bookmark URL.
-  Verified working on the live station page.
-- `chargefinder-grabber.js` — readable source of that bookmarklet.
-- `chargefinder.user.js` — Tampermonkey bridge (`GM_xmlhttpRequest` carries no
-  `Origin`, so the API answers). Never verified — no extension available to test.
-- `chargefinder_proxy.py` — stdlib local proxy, if a server-side hop is wanted.
-- `chargefinder-akkermaalsbos.html` — first attempt, with a baked-in snapshot.
+Only ChargeFinder's "available since / charging since" durations were ever
+exclusive to it, and they came at the price of an AES-GCM key lifted from their
+frontend bundle and an API that 403s any foreign `Origin` — something that could
+break on any deploy of theirs.
 
-ChargeFinder's API decrypts with an **AES-GCM key hardcoded in their frontend
-bundle** (`/js/app.js`, next to `crypto.subtle.importKey`), and 403s any foreign
-`Origin`. It was kept for its per-socket detail — but NDW's bulk OCPI file turns
-out to carry the same sockets, with matching EVSE ids (`docs/investigation.md`
-§9), so that reason is gone. Only the "available since" durations are still
-exclusive to ChargeFinder. Retiring `archive/` is now a live option.
+`git log -- archive/` recovers the files if that changes.

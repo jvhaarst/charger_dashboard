@@ -30,8 +30,9 @@ Decrypted, it gives per-socket identity (`NL*505*E1234792938*1`), status codes
 what a `file://` page gets). Note CORS itself is permissive there — the 403 body was
 readable cross-origin — so it is an application allowlist, not a CORS failure.
 
-Workable escape hatches, all of which were built (see `archive/`): bookmarklet on
-their own page, userscript via `GM_xmlhttpRequest`, or a server-side relay.
+Workable escape hatches, all of which were built: bookmarklet on their own page,
+userscript via `GM_xmlhttpRequest`, or a server-side relay. They lived in
+`archive/` until it was retired; `git log -- archive/` recovers them.
 
 ## 2. The operator's own platform — authenticated, account-scoped
 
@@ -211,7 +212,7 @@ NL505E1234829462*1  ref=04000376  1ph  UNKNOWN     updated 2026-08-26T09:04:04Z
 All six ids match the archived ChargeFinder sample exactly (modulo `*`
 separators). **Per-socket detail was the only remaining reason to keep
 `archive/`** — NDW provides it, so the origin-locked, AES-decrypting ChargeFinder
-path can be retired rather than maintained.
+path was retired rather than maintained.
 
 The companion file is
 `https://opendata.ndw.nu/charging_point_tariffs_ocpi.json.gz`, keyed by the
