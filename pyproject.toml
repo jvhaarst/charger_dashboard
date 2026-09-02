@@ -1,0 +1,26 @@
+[project]
+name = "ndw-charger-dashboard"
+version = "0.1.0"
+description = "Dashboard for public EV charge point availability from NDW DOT-NL."
+requires-python = ">=3.11"
+dependencies = [
+    "flask>=3.0",
+    "requests>=2.32",
+]
+
+[dependency-groups]
+dev = [
+    "gunicorn>=23.0",
+    "pytest>=8.0",
+    "ruff>=0.6",
+]
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "S", "W"]
+
+[tool.ruff.lint.per-file-ignores]
+"test_app.py" = ["S101"]           # asserts are the point of a test
+"seed_demo.py" = ["S311"]          # demo data, not cryptography

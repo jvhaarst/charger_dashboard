@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Charge point availability</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ctext y='14' font-size='14'%3E%E2%9A%A1%3C/text%3E%3C/svg%3E">
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f6f7f9; --card: #fff; --fg: #14181d; --muted: #67707c; --line: #e2e6ec;
+    --accent: #2a78d6; --track: #e7eaef;
+    /* status palette — fixed, never themed; always paired with a label */
+    --good: #0ca30c; --busy: #ec835a; --bad: #d03b3b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1216; --card: #171b21; --fg: #e8ecf1; --muted: #98a2b0; --line: #262c34;
+      --accent: #3987e5; --track: #232932;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px 16px 56px; background: var(--bg); color: var(--fg);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 2px; letter-spacing: -0.01em; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 14px; }
+  .sub { color: var(--muted); font-size: 14px; margin: 0 0 20px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 14px; }
+  .hero { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .hero .n { font-size: 44px; font-weight: 650; line-height: 1; letter-spacing: -0.02em; color: var(--good); }
+  .hero .n.none { color: var(--busy); }
+  .hero .of { color: var(--muted); }
+  .stamp { color: var(--muted); font-size: 13px; }
+  .grp { display: flex; align-items: center; gap: 12px; padding: 10px 0; }
+  .grp + .grp { border-top: 1px solid var(--line); }
+  .grp-name { font-weight: 600; }
+  .grp-meta { color: var(--muted); font-size: 13px; }
+  .pips { margin-left: auto; display: flex; gap: 3px; }
+  .pip { width: 14px; height: 22px; border-radius: 3px; background: var(--track); }
+  .pip.free { background: var(--good); }
+  .bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  button, select {
+    font: inherit; font-size: 14px; padding: 6px 12px; border-radius: 8px;
+    border: 1px solid var(--line); background: var(--card); color: var(--fg); cursor: pointer;
+  }
+  button:hover, select:hover { border-color: var(--accent); color: var(--accent); }
+  button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .chart { display: flex; align-items: flex-end; gap: 2px; height: 120px; margin-top: 4px; }
+  .col { flex: 1 1 auto; min-width: 2px; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; background: var(--track); border-radius: 3px; overflow: hidden; }
+  .col .fill { background: var(--good); border-radius: 3px 3px 0 0; min-height: 2px; }
+  .axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 6px; }
+  .ylab { font-size: 11px; color: var(--muted); }
+  .empty { color: var(--muted); font-size: 14px; padding: 8px 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 600; }
+  .scroll { overflow-x: auto; max-height: 320px; overflow-y: auto; }
+  .err { border-color: color-mix(in srgb, var(--bad) 40%, var(--line)); background: color-mix(in srgb, var(--bad) 10%, var(--card)); }
+  code { font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+  a { color: var(--accent); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1 id="title">Charge point availability</h1>
+  <p class="sub" id="subtitle">Loading…</p>
+
+  <div class="card err" id="error" hidden></div>
+
+  <div class="card" id="pick-card" hidden>
+    <div class="bar">
+      <label class="stamp" for="pick">Station</label>
+      <select id="pick"></select>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="hero">
+      <span class="n" id="hero-n">—</span>
+      <span class="of" id="hero-of"></span>
+      <span class="stamp" id="hero-time" style="margin-left:auto"></span>
+    </div>
+    <div id="groups" style="margin-top:14px"></div>
+  </div>
+
+  <div class="card">
+    <h2>Free sockets over time</h2>
+    <div class="bar" style="margin-bottom:10px">
+      <button data-hours="12" aria-pressed="false">12 h</button>
+      <button data-hours="48" aria-pressed="true">48 h</button>
+      <button data-hours="168" aria-pressed="false">7 d</button>
+      <span class="stamp" id="hist-note" style="margin-left:auto"></span>
+    </div>
+    <div class="ylab" id="ymax"></div>
+    <div class="chart" id="chart"></div>
+    <div class="axis"><span id="ax-first"></span><span id="ax-last"></span></div>
+    <div class="bar" style="margin-top:12px">
+      <button id="toggle-table" aria-pressed="false">Show as table</button>
+    </div>
+    <div class="scroll" id="table-wrap" hidden style="margin-top:10px"></div>
+  </div>
+
+  <div class="card" id="byhour-card" hidden>
+    <h2>Typical availability by hour</h2>
+    <div class="ylab">0 – 100% of sockets free, averaged over the stored history</div>
+    <div class="chart" id="byhour" style="height:90px"></div>
+    <div class="axis"><span>00:00</span><span>12:00</span><span>23:00</span></div>
+  </div>
+
+  <div class="card">
+    <h2>Source</h2>
+    <div class="stamp" id="source"></div>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+const BBOX = {{ bbox | tojson }};
+let stations = [];
+let current = null;
+let hours = 48;
+let history = [];
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const clock = (d) => d.toLocaleString("nl-NL", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+
+function ago(iso) {
+  if (!iso) return "";
+  const secs = Math.max(0, (Date.now() - Date.parse(iso)) / 1000);
+  if (secs < 90) return Math.round(secs) + " s ago";
+  if (secs < 5400) return Math.round(secs / 60) + " min ago";
+  if (secs < 172800) return Math.round(secs / 3600) + " h ago";
+  return Math.round(secs / 86400) + " days ago";
+}
+
+function showError(message) {
+  $("error").hidden = false;
+  $("error").innerHTML = "<strong>Can't reach NDW.</strong> " + esc(message);
+}
+
+async function loadCurrent() {
+  const res = await fetch("api/current", { cache: "no-store" });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "HTTP " + res.status);
+  $("error").hidden = true;
+  stations = data.stations || [];
+  if (!stations.length) {
+    $("subtitle").textContent = "No charge points in this bounding box.";
+    return;
+  }
+  if (!current || !stations.some((s) => s.id === current)) current = stations[0].id;
+
+  $("pick-card").hidden = stations.length < 2;
+  $("pick").innerHTML = stations
+    .map((s) => `<option value="${esc(s.id)}"${s.id === current ? " selected" : ""}>${esc(s.address)} — ${esc(s.operator)}</option>`)
+    .join("");
+
+  const station = stations.find((s) => s.id === current);
+  $("title").textContent = station.address || station.id;
+  $("subtitle").textContent = [station.operator, station.id].filter(Boolean).join(" · ");
+  $("hero-n").textContent = station.available;
+  $("hero-n").className = "n" + (station.available ? "" : " none");
+  $("hero-of").textContent = "of " + station.total + " sockets free";
+  $("hero-time").textContent = "operator updated " + ago(station.last_updated);
+
+  $("groups").innerHTML = station.groups
+    .map((g) => {
+      const pips = Array.from({ length: g.total }, (_, i) =>
+        `<span class="pip${i < g.available ? " free" : ""}"></span>`).join("");
+      return `<div class="grp">
+        <div>
+          <div class="grp-name">${g.available} of ${g.total} free</div>
+          <div class="grp-meta">${g.power_kw} kW · ${esc(g.power_type || "")} · ${esc((g.connector || "").replace("IEC_62196_", ""))}</div>
+        </div>
+        <div class="pips" title="${g.available} of ${g.total} free">${pips}</div>
+      </div>`;
+    })
+    .join("");
+
+  $("source").innerHTML =
+    "NDW DOT-NL, the Dutch national access point (free under AFIR). Bounding box <code>" +
+    esc(BBOX) + "</code>. <code>last_updated</code> is when the operator last reported a change, " +
+    "not when this page last asked.";
+}
+
+async function loadHistory() {
+  const res = await fetch(`api/history?hours=${hours}&station=${encodeURIComponent(current || "")}`, { cache: "no-store" });
+  const data = await res.json();
+  history = data.samples || [];
+  drawHistory();
+  drawByHour();
+}
+
+function drawHistory() {
+  const note = $("hist-note");
+  if (!history.length) {
+    $("chart").innerHTML = "";
+    note.textContent = "no observations stored yet — the poller fills this in";
+    $("ax-first").textContent = "";
+    $("ax-last").textContent = "";
+    $("table-wrap").innerHTML = "";
+    $("ymax").textContent = "";
+    return;
+  }
+  const total = history[history.length - 1].total || 1;
+  $("ymax").textContent = "0 – " + total + " sockets free";
+
+  // Bucket so the bars stay readable however long the window is.
+  const maxCols = 96;
+  const size = Math.ceil(history.length / maxCols);
+  const buckets = [];
+  for (let i = 0; i < history.length; i += size) {
+    const slice = history.slice(i, i + size);
+    const mean = slice.reduce((sum, s) => sum + s.available, 0) / slice.length;
+    buckets.push({ t: slice[0].t, mean, min: Math.min(...slice.map((s) => s.available)), n: slice.length });
+  }
+  $("chart").innerHTML = buckets
+    .map((b) => {
+      const pct = Math.round((b.mean / total) * 100);
+      const label = `${clock(new Date(b.t * 1000))} — ${b.mean.toFixed(1)} of ${total} free` +
+        (b.n > 1 ? ` (mean of ${b.n}, low ${b.min})` : "");
+      return `<div class="col" title="${esc(label)}"><div class="fill" style="height:${pct}%"></div></div>`;
+    })
+    .join("");
+
+  $("ax-first").textContent = clock(new Date(history[0].t * 1000));
+  $("ax-last").textContent = clock(new Date(history[history.length - 1].t * 1000));
+  note.textContent = history.length + (history.length === 1 ? " observation" : " observations");
+
+  const rows = history
+    .slice()
+    .reverse()
+    .slice(0, 500)
+    .map((s) => `<tr><td>${esc(clock(new Date(s.t * 1000)))}</td><td>${s.available} of ${s.total}</td>` +
+      `<td>${s.groups.map((g) => `${g.available}/${g.total} @ ${g.power_kw} kW`).join(", ")}</td></tr>`)
+    .join("");
+  $("table-wrap").innerHTML = `<table><tr><th>Time</th><th>Free</th><th>By power</th></tr>${rows}</table>`;
+}
+
+function drawByHour() {
+  // Needs at least a day's spread before an hour-of-day average means anything.
+  const span = history.length ? history[history.length - 1].t - history[0].t : 0;
+  if (span < 24 * 3600) {
+    $("byhour-card").hidden = true;
+    return;
+  }
+  const sums = Array.from({ length: 24 }, () => ({ sum: 0, n: 0 }));
+  for (const s of history) {
+    const hour = new Date(s.t * 1000).getHours();
+    if (s.total) {
+      sums[hour].sum += s.available / s.total;
+      sums[hour].n += 1;
+    }
+  }
+  $("byhour-card").hidden = false;
+  $("byhour").innerHTML = sums
+    .map((h, i) => {
+      const pct = h.n ? Math.round((h.sum / h.n) * 100) : 0;
+      const label = h.n ? `${String(i).padStart(2, "0")}:00 — ${pct}% free (${h.n} obs)` : `${i}:00 — no data`;
+      return `<div class="col" title="${esc(label)}"><div class="fill" style="height:${pct}%"></div></div>`;
+    })
+    .join("");
+}
+
+$("pick").onchange = (e) => {
+  current = e.target.value;
+  loadCurrent().then(loadHistory).catch((err) => showError(err.message));
+};
+
+for (const btn of document.querySelectorAll("[data-hours]")) {
+  btn.onclick = () => {
+    hours = Number(btn.dataset.hours);
+    for (const other of document.querySelectorAll("[data-hours]")) {
+      other.setAttribute("aria-pressed", String(other === btn));
+    }
+    loadHistory().catch((err) => showError(err.message));
+  };
+}
+
+$("toggle-table").onclick = () => {
+  const wrap = $("table-wrap");
+  wrap.hidden = !wrap.hidden;
+  $("toggle-table").setAttribute("aria-pressed", String(!wrap.hidden));
+  $("toggle-table").textContent = wrap.hidden ? "Show as table" : "Hide table";
+};
+
+async function refresh() {
+  try {
+    await loadCurrent();
+    await loadHistory();
+  } catch (err) {
+    showError(err && err.message ? err.message : String(err));
+  }
+}
+
+refresh();
+setInterval(refresh, 60000);
+</script>
+</body>
+</html>

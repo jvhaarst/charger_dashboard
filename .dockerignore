@@ -1,0 +1,14 @@
+# Keep the build context small and never leak local-only files.
+.git
+.github
+.venv
+data
+docs
+*.env
+.env
+.DS_Store
+__pycache__
+.pytest_cache
+.ruff_cache
+test_app.py
+seed_demo.py

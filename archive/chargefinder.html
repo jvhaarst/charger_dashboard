@@ -1,0 +1,718 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Charge point viewer</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ctext y='14' font-size='14'%3E%E2%9A%A1%3C/text%3E%3C/svg%3E">
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f6f7f9; --card: #fff; --fg: #14181d; --muted: #67707c; --line: #e2e6ec;
+    --accent: #2a78d6;
+    /* status palette — fixed, never themed; always paired with a label */
+    --st-good: #0ca30c; --st-busy: #ec835a; --st-bad: #d03b3b; --st-unknown: #9aa3ae;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1216; --card: #171b21; --fg: #e8ecf1; --muted: #98a2b0; --line: #262c34;
+      --accent: #3987e5; --st-unknown: #6b747f;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px 16px 56px; background: var(--bg); color: var(--fg);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  .wrap { max-width: 780px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 2px; letter-spacing: -0.01em; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 12px; }
+  .sub { color: var(--muted); font-size: 14px; margin: 0 0 20px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 14px; }
+  .hero { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .hero .n { font-size: 40px; font-weight: 650; letter-spacing: -0.02em; line-height: 1; }
+  .hero .of { color: var(--muted); }
+  .stamp { color: var(--muted); font-size: 13px; }
+  .row { display: flex; align-items: baseline; gap: 10px; padding: 7px 0; }
+  .row + .row { border-top: 1px solid var(--line); }
+  .k { color: var(--muted); flex: 0 0 38%; font-size: 13px; }
+  .v { flex: 1; }
+  .outlet { display: flex; align-items: center; gap: 12px; padding: 11px 0; }
+  .outlet + .outlet { border-top: 1px solid var(--line); }
+  .oname { font-weight: 600; }
+  .oid { color: var(--muted); font-size: 12px; font-family: ui-monospace, Menlo, monospace; }
+  .ometa { margin-left: auto; text-align: right; font-size: 13px; color: var(--muted); }
+  .badge { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--line); }
+  .swatch { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 14px; font-size: 12px; color: var(--muted); }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .tl-row { display: flex; align-items: center; gap: 12px; padding: 5px 0; }
+  .tl-name { flex: 0 0 96px; font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tl-strip { flex: 1; display: flex; gap: 2px; overflow-x: auto; padding-bottom: 2px; }
+  .cell { flex: 1 1 11px; min-width: 5px; max-width: 24px; height: 20px; border-radius: 2px; }
+  .axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 8px; padding-left: 108px; }
+  .bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  button { font: inherit; font-size: 14px; padding: 7px 13px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--fg); cursor: pointer; }
+  button:hover { border-color: var(--accent); color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:hover { opacity: .9; color: #fff; }
+  textarea { width: 100%; min-height: 76px; margin-top: 10px; background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 9px; font: 12px ui-monospace, Menlo, monospace; resize: vertical; }
+  .drop { border: 1.5px dashed var(--line); border-radius: 10px; padding: 14px; text-align: center; color: var(--muted); font-size: 13px; margin-top: 10px; }
+  .drop.over { border-color: var(--accent); color: var(--accent); }
+  .note { font-size: 13px; color: var(--muted); }
+  .msg { margin-top: 10px; font-size: 13px; }
+  .msg.bad { color: var(--st-bad); }
+  .msg.good { color: var(--st-good); }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 600; }
+  .scroll { overflow-x: auto; }
+  select, input[type=text] { font: inherit; font-size: 14px; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--fg); }
+  .bmlink {
+    display: inline-block; text-decoration: none; font-weight: 600; font-size: 14px;
+    padding: 7px 14px; border-radius: 8px; cursor: grab;
+    background: var(--accent); color: #fff; border: 1px solid var(--accent);
+  }
+  .bmlink:active { cursor: grabbing; }
+  details summary::marker { color: var(--muted); }
+  a { color: var(--accent); }
+  code { font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1 id="title">Charge point viewer</h1>
+  <p class="sub" id="subtitle">No data yet — grab a station with the bookmarklet and paste it below.</p>
+
+  <div class="card" id="pick-card" hidden>
+    <div class="bar">
+      <label class="stamp" for="pick">Station</label>
+      <select id="pick"></select>
+      <span class="stamp" id="live-note"></span>
+    </div>
+  </div>
+
+  <div class="card" id="now-card" hidden>
+    <div class="hero">
+      <span class="n" id="hero-n">—</span>
+      <span class="of" id="hero-of"></span>
+      <span class="stamp" id="hero-time" style="margin-left:auto"></span>
+    </div>
+  </div>
+
+  <div class="card" id="outlets-card" hidden>
+    <h2>Connectors</h2>
+    <div id="outlets"></div>
+  </div>
+
+  <div class="card" id="history-card" hidden>
+    <h2>History <span style="text-transform:none;letter-spacing:0">— one cell per grab</span></h2>
+    <div class="legend" id="legend"></div>
+    <div id="timeline"></div>
+    <div class="axis"><span id="ax-first"></span><span id="ax-last"></span></div>
+    <div class="bar" style="margin-top:14px">
+      <button id="toggle-table">Show as table</button>
+      <span class="stamp" id="hist-count"></span>
+    </div>
+    <div class="scroll" id="table-wrap" hidden style="margin-top:12px"></div>
+  </div>
+
+  <div class="card" id="station-card" hidden>
+    <h2>Station</h2>
+    <div id="info"></div>
+  </div>
+
+  <div class="card">
+    <h2>Grabber</h2>
+    <p class="note" style="margin-top:0">
+      ChargeFinder's API refuses any request that doesn't come from its own site, so the grab has to
+      happen there. Drag this to your bookmarks bar, then click it on any ChargeFinder station page:
+    </p>
+    <div class="bar" style="margin:12px 0">
+      <a id="bm" class="bmlink" href="#" draggable="true">⚡ Grab charger</a>
+      <button id="copy-bm">Copy as text</button>
+      <span class="stamp" id="bm-note">drag me →</span>
+    </div>
+    <details id="adv">
+      <summary class="stamp" style="cursor:pointer">Two ways to skip the copy-paste</summary>
+      <p class="note" style="margin-bottom:6px">
+        <b>Userscript.</b> In Tampermonkey, add a script that assigns
+        <code>window.cfLiveFetch = path =&gt; …GM_xmlhttpRequest…</code>; requests from the extension carry
+        no <code>Origin</code>, so the API answers. This page uses it automatically when present.
+      </p>
+      <div class="bar" style="margin:8px 0 12px">
+        <button id="copy-us">Copy userscript</button>
+        <span class="stamp" id="us-note"></span>
+      </div>
+      <p class="note" style="margin-bottom:0">
+        <b>Relay.</b> Any URL that fetches server-side and returns the body verbatim. Use
+        <code>{url}</code> where the target goes, e.g.
+        <code>https://example.org/raw?url={url}</code>, or give a plain base like
+        <code>http://localhost:8787/api</code> and the path is appended. A public relay means a third
+        party sees the requests.
+      </p>
+      <div class="bar" style="margin-top:10px">
+        <input id="relay" type="text" placeholder="relay URL (optional)" style="flex:1;min-width:220px">
+        <button id="save-relay">Save</button>
+      </div>
+    </details>
+    <div class="bar" style="margin-top:12px">
+      <button id="refresh-btn" hidden>Refresh now</button>
+      <span class="stamp" id="refresh-note"></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Add data</h2>
+    <div class="bar">
+      <button class="primary" id="paste-btn">Paste from clipboard</button>
+      <button id="import-btn">Import pasted text</button>
+      <button id="export-btn">Export all</button>
+      <button id="clear-btn">Clear history</button>
+    </div>
+    <textarea id="paste" placeholder="Paste the JSON from the grabber bookmarklet here, then press Import."></textarea>
+    <div class="drop" id="drop">…or drop the downloaded <code>.json</code> files here (several at once is fine)</div>
+    <div class="msg" id="msg"></div>
+    <p class="note" style="margin-bottom:0">
+      Every grab is kept in this browser's local storage, so repeated grabs build up an occupancy history.
+    </p>
+  </div>
+</div>
+
+<script type="text/plain" id="userscript-src">
+// ==UserScript==
+// @name         ChargeFinder live bridge
+// @namespace    local.chargefinder.viewer
+// @version      1.0
+// @description  Lets the local viewer page pull ChargeFinder data itself, with no proxy.
+// @author       -
+// @match        file:///*chargefinder-viewer.html*
+// @match        http://localhost:*/chargefinder-viewer.html*
+// @match        http://127.0.0.1:*/chargefinder-viewer.html*
+// @connect      api.chargefinder.com
+// @grant        GM_xmlhttpRequest
+// @run-at       document-start
+// ==/UserScript==
+
+/*
+ * Why this works where the page alone doesn't: api.chargefinder.com returns 403
+ * to any browser request carrying a foreign Origin header. GM_xmlhttpRequest is
+ * issued from the extension rather than the page, so no Origin is attached and
+ * the API answers normally.
+ *
+ * Install Tampermonkey (or Violentmonkey), add this script, and — for file://
+ * pages — enable "Allow access to file URLs" for the extension in chrome://extensions.
+ * The viewer picks the bridge up automatically and refreshes itself.
+ */
+
+(function () {
+  "use strict";
+
+  const API = "https://api.chargefinder.com";
+  const KEY = "9ac6af64f912e44291c7989bb7da774a";
+
+  const hexToBuf = (hex) =>
+    new Uint8Array(hex.match(/[\da-fA-F]{2}/g).map((h) => parseInt(h, 16))).buffer;
+
+  async function decrypt(payload) {
+    if (!payload || !payload.e) return payload;
+    const key = await crypto.subtle.importKey(
+      "raw",
+      new TextEncoder().encode(KEY),
+      "AES-GCM",
+      true,
+      ["decrypt"]
+    );
+    const buf = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: hexToBuf(payload.i) },
+      key,
+      hexToBuf(payload.e + payload.a)
+    );
+    const bytes = new Uint8Array(buf);
+    if (bytes[0] === 0x78) {
+      const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate"));
+      return JSON.parse(await new Response(stream).text());
+    }
+    return JSON.parse(new TextDecoder().decode(bytes));
+  }
+
+  function raw(path) {
+    return new Promise((resolve, reject) => {
+      GM_xmlhttpRequest({
+        method: "GET",
+        url: API + path,
+        headers: { Accept: "application/json" },
+        onload: (res) => {
+          if (res.status !== 200) {
+            reject(new Error("HTTP " + res.status + " for " + path));
+            return;
+          }
+          try {
+            resolve(JSON.parse(res.responseText));
+          } catch (err) {
+            reject(err);
+          }
+        },
+        onerror: () => reject(new Error("network error for " + path)),
+        ontimeout: () => reject(new Error("timeout for " + path)),
+      });
+    });
+  }
+
+  const bridge = async (path) => decrypt(await raw(path));
+
+  // unsafeWindow reaches the page's own window; fall back for managers that
+  // already run the script in the page context.
+  const target = typeof unsafeWindow !== "undefined" ? unsafeWindow : window;
+  target.cfLiveFetch = bridge;
+})();
+</script>
+
+<script type="text/plain" id="grabber-src">
+(async()=>{const e=e=>new Uint8Array(e.match(/[\da-fA-F]{2}/g).map(e=>parseInt(e,16))).buffer;const t=async t=>{const o=await fetch("https://api.chargefinder.com"+t,{cache:"no-store"});if(!o.ok)throw new Error("HTTP "+o.status+" for "+t);return async function(t){if(!t||!t.e)return t;const o=await crypto.subtle.importKey("raw",(new TextEncoder).encode("9ac6af64f912e44291c7989bb7da774a"),"AES-GCM",!0,["decrypt"]),r=await crypto.subtle.decrypt({name:"AES-GCM",iv:e(t.i)},o,e(t.e+t.a)),a=new Uint8Array(r);if(120===a[0]){const e=new Blob([a]).stream().pipeThrough(new DecompressionStream("deflate"));return JSON.parse(await new Response(e).text())}return JSON.parse((new TextDecoder).decode(a))}(await o.json())};function o(e){document.getElementById("cf-grab")?.remove();const t=document.createElement("div");return t.id="cf-grab",t.style.cssText="position:fixed;inset:auto 16px 16px auto;z-index:2147483647;width:min(420px,92vw);background:#171b21;color:#e8ecf1;border:1px solid #333b45;border-radius:12px;padding:14px;font:13px/1.45 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;box-shadow:0 12px 32px rgba(0,0,0,.4)",t.innerHTML=e,document.body.appendChild(t),t}const r="cursor:pointer;font:inherit;padding:6px 12px;border-radius:7px;border:1px solid #3a444f;background:#222932;color:#e8ecf1;margin-right:6px";try{const e=location.pathname.split("/").filter(Boolean).pop();if(!e||!/^[a-z0-9]{4,12}$/i.test(e))return void o("Open a ChargeFinder <b>station page</b> first, then click the bookmarklet.");o("Fetching <b>"+e+"</b>…");const a=await t("/station/"+e),n=a.realtime&&a.realtimeId?await t("/status/"+a.realtimeId):[],c={v:1,t:(new Date).toISOString(),slug:e,url:location.href,station:a,status:n},i=JSON.stringify(c),s=n.filter(e=>2===e.status).length,d=o("<div style='font-weight:600;margin-bottom:2px'>"+a.title+"</div><div style='color:#98a2b0;margin-bottom:10px'>"+s+" of "+n.length+" connectors available · "+(new Date).toLocaleTimeString()+"</div><button id='cf-copy' style=\""+r+"\">Copy JSON</button><button id='cf-dl' style=\""+r+"\">Download</button><button id='cf-x' style=\""+r+"\">Close</button><textarea id='cf-ta' readonly style='width:100%;height:70px;margin-top:10px;background:#0f1216;color:#98a2b0;border:1px solid #333b45;border-radius:7px;padding:6px;font:11px ui-monospace,Menlo,monospace'></textarea>");d.querySelector("#cf-ta").value=i,d.querySelector("#cf-copy").onclick=async()=>{const e=d.querySelector("#cf-ta");try{await navigator.clipboard.writeText(i),d.querySelector("#cf-copy").textContent="Copied ✓"}catch{e.select(),document.execCommand("copy"),d.querySelector("#cf-copy").textContent="Copied ✓"}},d.querySelector("#cf-dl").onclick=()=>{const t=document.createElement("a");t.href=URL.createObjectURL(new Blob([i],{type:"application/json"})),t.download="chargefinder-"+e+"-"+c.t.slice(0,19).replace(/[:T]/g,"")+".json",t.click(),URL.revokeObjectURL(t.href)},d.querySelector("#cf-x").onclick=()=>d.remove()}catch(e){o("Grab failed: "+(e&&e.message?e.message:e))}})();
+</script>
+
+<script>
+"use strict";
+
+const STORE_KEY = "chargefinder.samples.v1";
+const MAX_SAMPLES = 2000;
+const MAX_CELLS = 80;
+
+const STATES = {
+  0: { label: "Unknown", color: "var(--st-unknown)", icon: "?" },
+  1: { label: "Out of service", color: "var(--st-bad)", icon: "×" },
+  2: { label: "Available", color: "var(--st-good)", icon: "✓" },
+  3: { label: "In use", color: "var(--st-busy)", icon: "→" },
+  4: { label: "Reserved", color: "var(--st-busy)", icon: "→" },
+  5: { label: "Unknown", color: "var(--st-unknown)", icon: "?" },
+};
+const state = (code) => STATES[code] || { label: "Status " + code, color: "var(--st-unknown)", icon: "?" };
+
+/* ---------- storage ---------- */
+
+function load() {
+  try {
+    return JSON.parse(localStorage.getItem(STORE_KEY) || "{}") || {};
+  } catch {
+    return {};
+  }
+}
+
+function save(db) {
+  try {
+    localStorage.setItem(STORE_KEY, JSON.stringify(db));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Add one grabbed sample. Returns "added" | "duplicate" | "invalid". */
+function addSample(db, sample) {
+  if (!sample || !sample.slug || !sample.station || !Array.isArray(sample.status)) return "invalid";
+  const entry = (db[sample.slug] = db[sample.slug] || { station: null, samples: [] });
+  entry.station = sample.station;
+  entry.url = sample.url || entry.url;
+  const stamp = sample.t || new Date().toISOString();
+  if (entry.samples.some((s) => s.t === stamp)) return "duplicate";
+  entry.samples.push({ t: stamp, status: sample.status.map((s) => ({ id: s.id, status: s.status, info: s.info })) });
+  entry.samples.sort((a, b) => a.t.localeCompare(b.t));
+  if (entry.samples.length > MAX_SAMPLES) entry.samples = entry.samples.slice(-MAX_SAMPLES);
+  return "added";
+}
+
+/* ---------- helpers ---------- */
+
+const esc = (s) =>
+  String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+const flatOutlets = (station) => (station.outletList || []).flatMap((g) => g.outlets || []);
+
+const since = (info) => (info ? String(info).replace(/^[^:]*:\s*/, "").trim() : "");
+
+const clock = (iso) =>
+  new Date(iso).toLocaleString("nl-NL", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+
+/* ---------- rendering ---------- */
+
+let db = load();
+let current = null;
+
+function stationsList() {
+  return Object.keys(db).filter((k) => db[k] && db[k].station);
+}
+
+function render() {
+  const slugs = stationsList();
+  const has = slugs.length > 0;
+  for (const id of ["pick-card", "now-card", "outlets-card", "history-card", "station-card"]) {
+    document.getElementById(id).hidden = !has;
+  }
+  if (!has) {
+    document.getElementById("title").textContent = "Charge point viewer";
+    document.getElementById("subtitle").textContent =
+      "No data yet — grab a station with the bookmarklet and paste it below.";
+    return;
+  }
+  if (!current || !db[current]) current = slugs[0];
+
+  const pick = document.getElementById("pick");
+  pick.innerHTML = slugs
+    .map((s) => `<option value="${esc(s)}"${s === current ? " selected" : ""}>${esc(db[s].station.title)}</option>`)
+    .join("");
+  document.getElementById("pick-card").hidden = slugs.length < 2 && !window.cfLiveFetch;
+
+  const entry = db[current];
+  const station = entry.station;
+  const samples = entry.samples;
+  const latest = samples[samples.length - 1];
+
+  document.getElementById("title").textContent = station.title;
+  const addr = station.locationAddress || {};
+  document.getElementById("subtitle").textContent =
+    [addr.zip, addr.city, station.owner && "· " + station.owner].filter(Boolean).join(" ");
+
+  renderNow(latest);
+  renderOutlets(station, latest);
+  renderHistory(station, samples);
+  renderInfo(station, entry);
+  updateLiveControls();
+}
+
+function renderNow(latest) {
+  const free = latest ? latest.status.filter((s) => s.status === 2).length : 0;
+  document.getElementById("hero-n").textContent = free;
+  document.getElementById("hero-n").style.color = free > 0 ? "var(--st-good)" : "var(--st-busy)";
+  document.getElementById("hero-of").textContent =
+    "of " + (latest ? latest.status.length : 0) + " connectors available";
+  document.getElementById("hero-time").textContent = latest ? "grabbed " + clock(latest.t) : "";
+}
+
+function renderOutlets(station, latest) {
+  const byId = new Map((latest ? latest.status : []).map((s) => [s.id, s]));
+  const rows = flatOutlets(station).map((o) => {
+    const live = byId.get(o.identifier);
+    const st = state(live ? live.status : o.status);
+    return `
+      <div class="outlet">
+        <span class="swatch" style="background:${st.color}"></span>
+        <div>
+          <div class="oname">${esc(o.name || o.identifier)}</div>
+          <div class="oid">${esc(o.identifier)}</div>
+        </div>
+        <div class="ometa">
+          <span class="badge" style="color:${st.color}">${esc(st.icon)} ${esc(st.label)}</span><br>
+          ${esc(o.capacity + " kW · " + o.plug)}${live && since(live.info) ? " · " + esc(since(live.info)) : ""}
+        </div>
+      </div>`;
+  });
+  document.getElementById("outlets").innerHTML = rows.join("") || '<span class="stamp">No connectors listed.</span>';
+}
+
+function renderHistory(station, samples) {
+  const seen = [];
+  for (const code of [2, 3, 0, 1]) {
+    if (samples.some((s) => s.status.some((x) => x.status === code))) seen.push(code);
+  }
+  document.getElementById("legend").innerHTML = seen
+    .map((c) => {
+      const st = state(c);
+      return `<span><i class="swatch" style="background:${st.color}"></i>${esc(st.icon)} ${esc(st.label)}</span>`;
+    })
+    .join("");
+
+  const shown = samples.slice(-MAX_CELLS);
+  const outlets = flatOutlets(station);
+  document.getElementById("timeline").innerHTML = outlets
+    .map((o) => {
+      const cells = shown
+        .map((s) => {
+          const hit = s.status.find((x) => x.id === o.identifier);
+          const st = state(hit ? hit.status : 0);
+          return `<span class="cell" style="background:${st.color}" title="${esc(clock(s.t))} — ${esc(st.label)}"></span>`;
+        })
+        .join("");
+      return `<div class="tl-row"><div class="tl-name" title="${esc(o.identifier)}">${esc(o.name)}</div><div class="tl-strip">${cells}</div></div>`;
+    })
+    .join("");
+
+  document.getElementById("ax-first").textContent = shown.length ? clock(shown[0].t) : "";
+  document.getElementById("ax-last").textContent = shown.length > 1 ? clock(shown[shown.length - 1].t) : "";
+  document.getElementById("hist-count").textContent =
+    samples.length + (samples.length === 1 ? " grab stored" : " grabs stored");
+
+  const head = "<tr><th>Time</th>" + outlets.map((o) => `<th>${esc(o.name)}</th>`).join("") + "</tr>";
+  const body = shown
+    .slice()
+    .reverse()
+    .map((s) => {
+      const cells = outlets
+        .map((o) => {
+          const hit = s.status.find((x) => x.id === o.identifier);
+          return `<td>${esc(state(hit ? hit.status : 0).label)}</td>`;
+        })
+        .join("");
+      return `<tr><td>${esc(clock(s.t))}</td>${cells}</tr>`;
+    })
+    .join("");
+  document.getElementById("table-wrap").innerHTML = `<table>${head}${body}</table>`;
+}
+
+function renderInfo(station, entry) {
+  const addr = station.locationAddress || {};
+  const kw = station.minCapacity === station.maxCapacity ? station.maxCapacity + " kW" : station.minCapacity + "–" + station.maxCapacity + " kW";
+  const rows = [
+    ["Operator", station.owner || station.operator || "—"],
+    ["Address", addr.full || "—"],
+    ["Power", kw],
+    ["Connectors", (station.outletList || []).map((g) => g.outlets.length + " × " + g.plug + " " + g.capacity + " kW").join(", ") || "—"],
+    ["Access", station.access + (station.authCard ? " · charge card required" : "")],
+    ["Opening hours", station.openingHours || "—"],
+    ["Coordinates", station.location.latitude.toFixed(5) + ", " + station.location.longitude.toFixed(5)],
+  ];
+  const link = entry.url ? `<div class="row"><div class="k">Source</div><div class="v"><a href="${esc(entry.url)}" target="_blank" rel="noopener">ChargeFinder page</a></div></div>` : "";
+  document.getElementById("info").innerHTML =
+    rows.map((r) => `<div class="row"><div class="k">${r[0]}</div><div class="v">${esc(String(r[1]))}</div></div>`).join("") + link;
+}
+
+/* ---------- importing ---------- */
+
+function say(text, kind) {
+  const el = document.getElementById("msg");
+  el.textContent = text;
+  el.className = "msg" + (kind ? " " + kind : "");
+}
+
+function ingest(text) {
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    say("That isn't valid JSON — copy the whole block from the grabber.", "bad");
+    return;
+  }
+  const list = Array.isArray(parsed) ? parsed : [parsed];
+  let added = 0;
+  let dupes = 0;
+  let bad = 0;
+  for (const item of list) {
+    const result = addSample(db, item);
+    if (result === "added") added++;
+    else if (result === "duplicate") dupes++;
+    else bad++;
+  }
+  if (added) {
+    current = list.find((i) => i && i.slug) ? list[list.length - 1].slug : current;
+    if (!save(db)) {
+      say("Stored in this page, but the browser refused to save it (private window?).", "bad");
+    } else {
+      say(`Added ${added} grab${added === 1 ? "" : "s"}${dupes ? `, skipped ${dupes} already stored` : ""}.`, "good");
+    }
+    render();
+  } else if (dupes) {
+    say("Already stored — nothing new in that grab.", "");
+  } else {
+    say(`Couldn't read ${bad} item${bad === 1 ? "" : "s"} — is that output from the grabber?`, "bad");
+  }
+}
+
+document.getElementById("import-btn").onclick = () => {
+  const box = document.getElementById("paste");
+  if (!box.value.trim()) {
+    say("Paste the grabber output into the box first.", "bad");
+    return;
+  }
+  ingest(box.value);
+  box.value = "";
+};
+
+document.getElementById("paste-btn").onclick = async () => {
+  try {
+    const text = await navigator.clipboard.readText();
+    if (!text.trim()) {
+      say("Clipboard is empty.", "bad");
+      return;
+    }
+    ingest(text);
+  } catch {
+    say("The browser blocked clipboard access — paste into the box below instead.", "bad");
+  }
+};
+
+document.getElementById("export-btn").onclick = () => {
+  const blob = new Blob([JSON.stringify(db, null, 1)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "chargefinder-history.json";
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
+
+document.getElementById("clear-btn").onclick = () => {
+  if (!stationsList().length) return;
+  document.getElementById("clear-btn").textContent = "Press again to erase";
+  document.getElementById("clear-btn").onclick = () => {
+    db = {};
+    current = null;
+    save(db);
+    render();
+    say("History cleared.", "");
+    location.reload();
+  };
+};
+
+const drop = document.getElementById("drop");
+drop.addEventListener("dragover", (e) => {
+  e.preventDefault();
+  drop.classList.add("over");
+});
+drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+drop.addEventListener("drop", async (e) => {
+  e.preventDefault();
+  drop.classList.remove("over");
+  const files = [...e.dataTransfer.files].filter((f) => /\.json$/i.test(f.name));
+  if (!files.length) {
+    say("Drop the .json files the grabber downloaded.", "bad");
+    return;
+  }
+  const texts = await Promise.all(files.map((f) => f.text()));
+  ingest("[" + texts.join(",") + "]");
+});
+
+document.getElementById("toggle-table").onclick = () => {
+  const wrap = document.getElementById("table-wrap");
+  wrap.hidden = !wrap.hidden;
+  document.getElementById("toggle-table").textContent = wrap.hidden ? "Show as table" : "Hide table";
+};
+
+document.getElementById("pick").onchange = (e) => {
+  current = e.target.value;
+  render();
+};
+
+/* ---------- the grabber, as a draggable bookmarklet ---------- */
+
+const grabberSource = document.getElementById("grabber-src").textContent.trim();
+const bookmarklet = "javascript:" + encodeURIComponent(grabberSource);
+document.getElementById("bm").href = bookmarklet;
+document.getElementById("bm").onclick = (e) => {
+  e.preventDefault();
+  say("Drag that button to your bookmarks bar — clicking it here does nothing, it has to run on chargefinder.com.", "bad");
+};
+document.getElementById("copy-bm").onclick = async () => {
+  try {
+    await navigator.clipboard.writeText(bookmarklet);
+    document.getElementById("bm-note").textContent = "copied — paste it as a new bookmark's URL";
+  } catch {
+    document.getElementById("paste").value = bookmarklet;
+    document.getElementById("bm-note").textContent = "put in the box below — copy it from there";
+  }
+};
+
+document.getElementById("copy-us").onclick = async () => {
+  const src = document.getElementById("userscript-src").textContent.trim();
+  try {
+    await navigator.clipboard.writeText(src);
+    document.getElementById("us-note").textContent = "copied — paste into a new Tampermonkey script";
+  } catch {
+    document.getElementById("paste").value = src;
+    document.getElementById("us-note").textContent = "put in the box below — copy it from there";
+  }
+};
+
+/* ---------- optional live paths: userscript bridge, or a relay ---------- */
+
+const RELAY_KEY = "chargefinder.relay.v1";
+const API = "https://api.chargefinder.com";
+let relay = "";
+try {
+  relay = localStorage.getItem(RELAY_KEY) || "";
+} catch {
+  relay = "";
+}
+document.getElementById("relay").value = relay;
+if (relay) document.getElementById("adv").open = true;
+
+document.getElementById("save-relay").onclick = () => {
+  relay = document.getElementById("relay").value.trim();
+  try {
+    localStorage.setItem(RELAY_KEY, relay);
+  } catch {
+    /* private window — keep it for this session only */
+  }
+  updateLiveControls();
+  say(relay ? "Relay saved." : "Relay cleared.", "good");
+};
+
+const hexToBuf = (hex) =>
+  new Uint8Array(hex.match(/[\da-fA-F]{2}/g).map((h) => parseInt(h, 16))).buffer;
+
+async function decrypt(payload) {
+  if (!payload || !payload.e) return payload;
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode("9ac6af64f912e44291c7989bb7da774a"),
+    "AES-GCM",
+    true,
+    ["decrypt"]
+  );
+  const buf = await crypto.subtle.decrypt({ name: "AES-GCM", iv: hexToBuf(payload.i) }, key, hexToBuf(payload.e + payload.a));
+  const bytes = new Uint8Array(buf);
+  if (bytes[0] === 0x78) {
+    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate"));
+    return JSON.parse(await new Response(stream).text());
+  }
+  return JSON.parse(new TextDecoder().decode(bytes));
+}
+
+async function viaRelay(path) {
+  const target = API + path;
+  const url = relay.includes("{url}") ? relay.replace("{url}", encodeURIComponent(target)) : relay.replace(/\/$/, "") + path;
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) throw new Error("HTTP " + res.status + " from the relay");
+  return decrypt(await res.json());
+}
+
+const liveFetch = () => (typeof window.cfLiveFetch === "function" ? window.cfLiveFetch : relay ? viaRelay : null);
+
+async function liveRefresh(quiet) {
+  const fetcher = liveFetch();
+  if (!fetcher || !current) return;
+  try {
+    const station = await fetcher("/station/" + current);
+    const status = station.realtime && station.realtimeId ? await fetcher("/status/" + station.realtimeId) : [];
+    ingest(JSON.stringify({ v: 1, t: new Date().toISOString(), slug: current, station, status }));
+  } catch (err) {
+    if (!quiet) say("Live refresh failed: " + (err && err.message ? err.message : err), "bad");
+  }
+}
+
+function updateLiveControls() {
+  const how = typeof window.cfLiveFetch === "function" ? "userscript bridge" : relay ? "relay" : null;
+  const on = Boolean(how) && Boolean(current);
+  document.getElementById("refresh-btn").hidden = !how;
+  document.getElementById("refresh-note").textContent = how
+    ? on
+      ? "live via " + how + " — auto every 5 min"
+      : "live via " + how + " — grab a station once so it knows which one"
+    : "";
+  document.getElementById("live-note").textContent = on ? "live via " + how : "";
+}
+
+document.getElementById("refresh-btn").onclick = () => liveRefresh(false);
+
+render();
+updateLiveControls();
+if (liveFetch()) {
+  setInterval(() => {
+    liveRefresh(true);
+    updateLiveControls();
+  }, 300000);
+  liveRefresh(true);
+}
+
+</script>
+</body>
+</html>
