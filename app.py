@@ -14,6 +14,8 @@ Configuration is environment-only:
     NDW_CACHE_SECONDS  how long a fetched response stays fresh (default 60)
     NDW_MERGE_METRES   fold one operator's stations this close into one site
                        (default 10; 0 shows every registered station)
+    NDW_OCPI_SECONDS   how often to refresh which sockets are dead, from the
+                       bulk OCPI file (default 3600; 0 disables the feature)
     NDW_DB             SQLite path (default data/history.sqlite3)
     NDW_CACHE_DIR      response cache directory (default data/cache)
     NDW_RETAIN_DAYS    history retention, 0 keeps everything (default 90)
@@ -33,6 +35,7 @@ from typing import Any
 from flask import Flask, jsonify, render_template, request
 
 import ndw
+import ocpi
 from store import Store
 
 LOGGER = logging.getLogger(__name__)
@@ -54,6 +57,8 @@ def create_app() -> Flask:
         POLL_SECONDS=_int_env("NDW_POLL_SECONDS", 300),
         CACHE_SECONDS=_int_env("NDW_CACHE_SECONDS", 60),
         MERGE_METRES=_int_env("NDW_MERGE_METRES", 10),
+        OCPI_SECONDS=_int_env("NDW_OCPI_SECONDS", 3600),
+        OCPI_FIXTURE=os.environ.get("NDW_OCPI_FIXTURE") or None,
         RETAIN_DAYS=_int_env("NDW_RETAIN_DAYS", 90),
         CACHE_DIR=Path(os.environ.get("NDW_CACHE_DIR", "data/cache")),
         FIXTURE=os.environ.get("NDW_FIXTURE") or None,
@@ -65,7 +70,12 @@ def create_app() -> Flask:
 
     store = Store(Path(os.environ.get("NDW_DB", "data/history.sqlite3")))
     app.extensions["store"] = store
-    state: dict[str, Any] = {"last_fetch": None, "last_error": None}
+    state: dict[str, Any] = {
+        "last_fetch": None,
+        "last_error": None,
+        "ocpi_at": None,
+        "ocpi_error": None,
+    }
     app.extensions["state"] = state
 
     def observe() -> dict[str, Any]:
@@ -86,7 +96,34 @@ def create_app() -> Flask:
             state["last_error"] = None
         return collection
 
+    def sockets(stations: list[dict[str, Any]]) -> dict[str, Any]:
+        """Refresh the dead-socket snapshot and fold it into `stations`.
+
+        Never fatal: without it the dashboard simply shows free/not-free, which
+        is what it did before this existed.
+        """
+        if not app.config["OCPI_SECONDS"]:
+            return {}
+        wanted = {ocpi.ocpi_id(m) for s in stations for m in s.get("members") or []}
+        try:
+            snapshot, cached = ocpi.fetch(
+                wanted,
+                cache_dir=app.config["CACHE_DIR"],
+                ttl=app.config["OCPI_SECONDS"],
+                fixture=app.config["OCPI_FIXTURE"],
+            )
+        except ocpi.OcpiError as err:
+            state["ocpi_error"] = str(err)
+            LOGGER.warning("dead-socket snapshot unavailable: %s", err)
+            return {}
+        if not cached:
+            state["ocpi_at"] = time.time()
+            state["ocpi_error"] = None
+        ocpi.annotate(stations, snapshot)
+        return snapshot
+
     app.extensions["observe"] = observe
+    app.extensions["sockets"] = sockets
 
     @app.route("/")
     def index() -> str:
@@ -99,11 +136,18 @@ def create_app() -> Flask:
         except ndw.NdwError as err:
             state["last_error"] = str(err)
             return jsonify({"error": str(err)}), 503
+        stations = ndw.parse(collection, app.config["MERGE_METRES"])
+        sockets(stations)
         return jsonify(
             {
                 "fetched_at": datetime.now(UTC).isoformat(timespec="seconds"),
                 "bbox": app.config["BBOX"],
-                "stations": ndw.parse(collection, app.config["MERGE_METRES"]),
+                "sockets_at": None
+                if state["ocpi_at"] is None
+                else datetime.fromtimestamp(state["ocpi_at"], UTC).isoformat(
+                    timespec="seconds"
+                ),
+                "stations": stations,
             }
         )
 
@@ -147,6 +191,10 @@ def create_app() -> Flask:
                 if last is None
                 else int(time.time() - last),
                 "last_error": state["last_error"],
+                "sockets_age_seconds": None
+                if state["ocpi_at"] is None
+                else int(time.time() - state["ocpi_at"]),
+                "sockets_error": state["ocpi_error"],
                 "bbox": app.config["BBOX"],
                 "fixture": bool(app.config["FIXTURE"]),
             }
@@ -171,7 +219,10 @@ def _start_poller(app: Flask) -> None:
     def loop() -> None:
         while True:
             try:
-                observe()
+                collection = observe()
+                app.extensions["sockets"](
+                    ndw.parse(collection, app.config["MERGE_METRES"])
+                )
                 retain = app.config["RETAIN_DAYS"]
                 if retain:
                     cutoff = int(time.time() // 60) - retain * 24 * 60

@@ -21,6 +21,8 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("NDW_DB", str(tmp_path / "history.sqlite3"))
     monkeypatch.setenv("NDW_CACHE_DIR", str(tmp_path / "cache"))
     monkeypatch.setenv("NDW_POLL_SECONDS", "60")
+    # Off unless a test asks for it: enabled, this downloads a national file.
+    monkeypatch.setenv("NDW_OCPI_SECONDS", "0")
     import app as app_module
 
     application = app_module.create_app()
@@ -354,6 +356,44 @@ def test_current_records_history_which_history_endpoint_serves(client):
 def test_history_filters_by_station(client):
     client.get("/api/current")
     assert client.get("/api/history?station=nope").get_json()["samples"] == []
+
+
+def test_current_marks_dead_sockets_when_the_ocpi_snapshot_is_available(
+    tmp_path, monkeypatch
+):
+    """The fixture station is 3/5 free at 7.4kW and 1/1 at 22kW."""
+    bulk = tmp_path / "ocpi.json.gz"
+    with gzip.open(bulk, "wt", encoding="utf-8") as handle:
+        json.dump(
+            [
+                {
+                    "id": "91107050",
+                    "evses": [
+                        _evse("AVAILABLE", "AC_1_PHASE"),
+                        _evse("AVAILABLE", "AC_1_PHASE"),
+                        _evse("AVAILABLE", "AC_1_PHASE"),
+                        _evse("UNKNOWN", "AC_1_PHASE"),
+                        _evse("OUTOFORDER", "AC_1_PHASE"),
+                        _evse("AVAILABLE", "AC_3_PHASE"),
+                    ],
+                }
+            ],
+            handle,
+        )
+    monkeypatch.setenv("NDW_FIXTURE", str(FIXTURE))
+    monkeypatch.setenv("NDW_DB", str(tmp_path / "h.sqlite3"))
+    monkeypatch.setenv("NDW_CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setenv("NDW_OCPI_SECONDS", "3600")
+    monkeypatch.setenv("NDW_OCPI_FIXTURE", str(bulk))
+    import app as app_module
+
+    body = app_module.create_app().test_client().get("/api/current").get_json()
+    station = body["stations"][0]
+    slow = next(g for g in station["groups"] if g["power_kw"] == 7.4)
+    # Two of the five are dead, so none of the not-free ones is in use.
+    assert (slow["available"], slow["dead"], slow["in_use"]) == (3, 2, 0)
+    assert station["dead"] == 2
+    assert body["sockets_at"] is not None
 
 
 def test_healthz_reports_state(client):
