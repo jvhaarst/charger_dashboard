@@ -57,6 +57,36 @@ def test_validate_bbox_accepts_the_default():
     assert ndw.validate_bbox("5.6580,51.9810,5.6620,51.9840")
 
 
+def test_fetch_bounds_the_connect_timeout_separately(tmp_path, monkeypatch):
+    """A dead address must not be able to spend the whole request budget.
+
+    dotnl.ndw.nu publishes an AAAA record that silently drops packets, and
+    socket.create_connection applies the timeout to each address in turn — so a
+    single scalar timeout is burned entirely on the dead IPv6 address before
+    IPv4 is even tried. A short connect timeout caps that waste. See
+    docs/investigation.md.
+    """
+    seen = {}
+
+    class Response:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"type": "FeatureCollection", "features": []}
+
+    def fake_get(url, **kwargs):
+        seen.update(kwargs)
+        return Response()
+
+    monkeypatch.setattr(ndw.requests, "get", fake_get)
+    ndw.fetch("5.0,51.0,5.1,51.1", cache_dir=tmp_path / "cache")
+
+    connect, read = seen["timeout"]
+    assert connect < read, "connect budget must be separate from the read budget"
+    assert connect <= 5, f"connect timeout {connect}s lets a dead address stall us"
+
+
 def test_store_ignores_a_minute_it_already_has(tmp_path):
     from store import Store
 

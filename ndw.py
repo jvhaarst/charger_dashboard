@@ -33,6 +33,16 @@ USER_AGENT = "ndw-charger-dashboard/1.0 (+https://github.com/)"
 # to 10 requests per second.
 MAX_BBOX_DEGREES_SQUARED = 1.0
 
+# Connect and read budgets are kept apart on purpose. dotnl.ndw.nu publishes an
+# AAAA record that silently drops packets, and socket.create_connection tries
+# each resolved address in turn applying the whole timeout to each — so a single
+# scalar spends its entire budget on the dead IPv6 address before trying IPv4,
+# which then answers in milliseconds. A short connect timeout caps that waste.
+# 3.05 rather than 3 so it lands just past the 3-second TCP retransmission
+# window. See docs/investigation.md.
+CONNECT_TIMEOUT = 3.05
+READ_TIMEOUT = 15.0
+
 
 class NdwError(RuntimeError):
     """Raised when NDW cannot be reached and no cached value is available."""
@@ -87,7 +97,7 @@ def fetch(
     bbox: str,
     cache_dir: Path,
     ttl: float = 60.0,
-    timeout: float = 15.0,
+    timeout: float | tuple[float, float] = (CONNECT_TIMEOUT, READ_TIMEOUT),
     fixture: str | None = None,
 ) -> tuple[dict[str, Any], bool]:
     """Return (GeoJSON FeatureCollection, from_cache).
