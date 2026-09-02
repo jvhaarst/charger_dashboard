@@ -136,7 +136,15 @@ Evidence:
 - `nc -6 -z -w 5 2603:1020:203:14::74 443` → timeout.
 - IPv6 from the same machine to `ipv6.google.com`, `api.github.com` and
   `cloudflare.com` all connect in ~27ms, so local IPv6 is healthy. The fault is
-  NDW's, and any IPv6-capable host will hit it — including the Pi k3s nodes.
+  NDW's, not the machine's.
+
+**It does not affect the cluster.** This section originally predicted any
+IPv6-capable host would hit it, "including the Pi k3s nodes". Measured inside the
+running pod on 2026-09-02, that is wrong: `getaddrinfo` there returns the IPv4
+address *first*, the reverse of macOS, so the dead address is never tried and the
+connect takes 0.01s. The split timeout is therefore doing no work in production —
+it pays off on developer machines that order IPv6 first. Worth knowing before
+anyone removes it as dead weight or re-investigates a slowness that is not there.
 
 Fixed by splitting the scalar timeout into `(CONNECT_TIMEOUT, READ_TIMEOUT)` =
 `(3.05, 15.0)` in `ndw.py`. Because the connect timeout applies per address, the
