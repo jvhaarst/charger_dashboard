@@ -53,8 +53,10 @@ def test_validate_bbox_rejects_bad_input(bbox):
         ndw.validate_bbox(bbox)
 
 
-def test_validate_bbox_accepts_the_default():
-    assert ndw.validate_bbox("5.6580,51.9810,5.6620,51.9840")
+def test_validate_bbox_accepts_the_default(monkeypatch):
+    # The box we ship has to satisfy the limits we enforce on everyone else.
+    monkeypatch.delenv("NDW_BBOX", raising=False)
+    assert ndw.validate_bbox(ndw.default_bbox())
 
 
 def test_fetch_bounds_the_connect_timeout_separately(tmp_path, monkeypatch):

@@ -8,8 +8,9 @@ It exists because that API sends **no CORS headers**, so a browser page cannot
 call it directly. This app fetches server-side, keeps a history in SQLite, and
 serves both to a single dashboard page from its own origin.
 
-Default bounding box covers Akkermaalsbos 2, Wageningen (`NL-LMS-91107050`,
-operated by 50five). Point `NDW_BBOX` anywhere in the Netherlands.
+The default bounding box covers about a square kilometre of the Wageningen
+Business & Science Park — four stations across three addresses, 50five and Qwello.
+Point `NDW_BBOX` anywhere in the Netherlands.
 
 ## Run it
 
@@ -31,7 +32,7 @@ All environment variables, all optional:
 
 | Variable | Default | What it does |
 |---|---|---|
-| `NDW_BBOX` | `5.6580,51.9810,5.6620,51.9840` | `minLon,minLat,maxLon,maxLat`. The API caps a box at 1.0 degree² and 1000 features. |
+| `NDW_BBOX` | `5.655835,51.980796,5.670791,51.989109` | `minLon,minLat,maxLon,maxLat`. The API caps a box at 1.0 degree² and 1000 features. |
 | `NDW_POLL_SECONDS` | `300` | How often an observation is recorded. |
 | `NDW_CACHE_SECONDS` | `60` | How long a fetched response counts as fresh. NDW updates within a minute of a change, so going below this only adds load. |
 | `NDW_DB` | `data/history.sqlite3` | History database. |
@@ -39,8 +40,8 @@ All environment variables, all optional:
 | `NDW_RETAIN_DAYS` | `90` | History retention; `0` keeps everything. |
 | `NDW_FIXTURE` | – | Read this JSON file instead of calling NDW. Offline demos and tests. |
 
-A wider box picks up neighbouring stations and the dashboard grows a station
-picker — the Allego chargers on Tarthorst are a few hundred metres away.
+A wider box picks up more stations and the dashboard grows a station picker —
+the Allego chargers on Tarthorst are a few hundred metres further out.
 
 ## Endpoints
 

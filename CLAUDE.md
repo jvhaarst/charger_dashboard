@@ -10,6 +10,11 @@ because most of the obvious alternatives have already been tested and ruled out.
 
 ## The station
 
+The one the dashboard was built for. Three more fall inside the default bounding
+box: two Qwello points at Bornsesteeg 4 (`NL-QWC-631dc33b…`, `NL-QWC-8b634978…`,
+2 sockets each at 17.25 kW) and 50five's Droevendaalsesteeg 1 (`NL-LMS-91106101`,
+6 × 7.4 kW).
+
 | | |
 |---|---|
 | NDW id | `NL-LMS-91107050` |
@@ -101,8 +106,9 @@ blackholes, which cost 15s on every cache miss. See `docs/investigation.md` §7.
 1. **Tariffs.** Each group carries `tariff_ids` (e.g. `417371606`) that resolve
    against `https://opendata.ndw.nu/charging_point_tariffs_ocpi.json.gz`. That gives
    real prices — something no earlier approach produced. Biggest single win.
-2. **Widen the bbox** to include the Allego chargers on Tarthorst; the station
-   picker already handles multiple stations.
+2. **Widen the bbox further** — the default now covers the Business & Science
+   Park (Akkermaalsbos 2, Bornsesteeg 4 ×2, Droevendaalsesteeg 1); the Allego
+   chargers on Tarthorst are still outside it.
 3. Deploy to k3s (volume at `/data`, else history dies with the container).
 4. Mail mail@servicedeskndw.nu about two things: the missing CORS header (a long
    shot that would obsolete this server) and the blackholed AAAA record on

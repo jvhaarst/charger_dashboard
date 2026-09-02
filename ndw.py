@@ -175,5 +175,10 @@ def parse(collection: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def default_bbox() -> str:
-    """Bounding box from the environment, defaulting to Akkermaalsbos 2."""
-    return os.environ.get("NDW_BBOX", "5.6580,51.9810,5.6620,51.9840")
+    """Bounding box from the environment.
+
+    The default covers roughly a square kilometre of the Wageningen Business &
+    Science Park: Akkermaalsbos 2, the two Qwello points on Bornsesteeg 4, and
+    Droevendaalsesteeg 1. The dashboard grows a station picker past one station.
+    """
+    return os.environ.get("NDW_BBOX", "5.655835,51.980796,5.670791,51.989109")
