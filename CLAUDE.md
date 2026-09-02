@@ -131,9 +131,11 @@ deleted. They were kept for one reason: per-socket detail that NDW was believed
 not to publish. NDW's bulk OCPI file does publish it, with EVSE ids matching
 ChargeFinder's exactly (`docs/investigation.md` §9), so the reason expired.
 
-Only ChargeFinder's "available since / charging since" durations were ever
-exclusive to it, and they came at the price of an AES-GCM key lifted from their
-frontend bundle and an API that 403s any foreign `Origin` — something that could
-break on any deploy of theirs.
+Nothing there was exclusive after all. The "available since / charging since"
+durations looked like ChargeFinder's own, but OCPI's per-EVSE `last_updated` is
+the moment a socket's status last changed, so the duration is simply
+`now - last_updated` — the same arithmetic, from data NDW publishes (§9).
 
-`git log -- archive/` recovers the files if that changes.
+Their API has since closed to server-side callers entirely, so the proxy in there
+was dead code by the time it was deleted. `git log -- archive/` recovers the
+files if any of this changes.

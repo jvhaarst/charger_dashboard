@@ -34,6 +34,18 @@ Workable escape hatches, all of which were built: bookmarklet on their own page,
 userscript via `GM_xmlhttpRequest`, or a server-side relay. They lived in
 `archive/` until it was retired; `git log -- archive/` recovers them.
 
+**The relay no longer works.** Retested 2026-09-02: the API answers
+`403 {"message":"Forbidden"}` to a plain server-side request carrying no `Origin`
+at all, and to one with a browser `User-Agent`, while their public station page
+still returns 200. When this section was first written a no-`Origin` request was
+accepted, which is what made a relay viable; that is no longer true. Only the two
+escape hatches that run *in a browser on their own origin* — the bookmarklet and
+the userscript — could still work. Getting past the rest would mean spoofing an
+`Origin` to defeat an access control they deliberately set, so it was not
+attempted.
+
+This is one more reason `archive/` was retired: its proxy is now dead code.
+
 ## 2. The operator's own platform — authenticated, account-scoped
 
 50five runs on **EVC-Net** (Last Mile Solutions). Its client is a PHP portal:
@@ -262,6 +274,33 @@ appear twice), so this is how they register, not a one-off error.
 
 Worth noting for contrast: Qwello reports real `CHARGING` states here, while
 50five's sockets sit at `UNKNOWN` for days. Reporting quality is per-operator.
+
+### ChargeFinder has no source we lack
+
+Asked where ChargeFinder gets per-socket status, since it shows more than the
+bbox feed does. Checked 2026-09-02: it is the same OCPI data.
+
+- Its three states map one-to-one onto OCPI's `AVAILABLE` / `CHARGING` /
+  `UNKNOWN`, and all six Akkermaalsbos EVSE ids match NDW's exactly.
+- **The "available since" durations require no history.** OCPI's per-EVSE
+  `last_updated` is the moment that socket's status last changed, so the
+  displayed duration is just `now - last_updated`.
+- Cross-check against the archived 12:00:22Z sample: it flagged exactly the two
+  sockets NDW showed as stale, both as "Unknown since: > 2 days", against NDW
+  timestamps 7d 3h 41m and 7d 2h 56m earlier — consistent with the display
+  capping at that bucket.
+
+So the one feature thought exclusive to ChargeFinder is derivable from the file
+in this section. There is no private feed to chase.
+
+Two lighter routes to per-socket data were also checked and ruled out:
+`https://opendata.ndw.nu/charging_point_locations.geojson.gz` (4.9 MB) carries
+only the grouped shape the bbox endpoint already gives, and the `date_from` /
+`date_to` pagination in the OCPI spec is provider-side — for CPOs pushing into
+NDW, not offered to consumers. The 198 MB file remains the only way in, and a
+naive `json.load` of it peaks at 1.23 GB RSS against the pod's 256 Mi limit, so
+any integration needs a streaming parser and a much slower poll than the bbox
+feed.
 
 ## Sources
 
