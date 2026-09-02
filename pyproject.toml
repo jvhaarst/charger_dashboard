@@ -6,11 +6,13 @@ requires-python = ">=3.11"
 dependencies = [
     "flask>=3.0",
     "requests>=2.32",
+    # Runtime, not tooling: the container serves through gunicorn, and the image
+    # is built with --no-dev, so this must not live in the dev group.
+    "gunicorn>=23.0",
 ]
 
 [dependency-groups]
 dev = [
-    "gunicorn>=23.0",
     "pytest>=8.0",
     "ruff>=0.6",
 ]

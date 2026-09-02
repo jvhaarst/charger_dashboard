@@ -330,12 +330,12 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "flask" },
+    { name = "gunicorn" },
     { name = "requests" },
 ]
 
 [package.dev-dependencies]
 dev = [
-    { name = "gunicorn" },
     { name = "pytest" },
     { name = "ruff" },
 ]
@@ -343,12 +343,12 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "flask", specifier = ">=3.0" },
+    { name = "gunicorn", specifier = ">=23.0" },
     { name = "requests", specifier = ">=2.32" },
 ]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "gunicorn", specifier = ">=23.0" },
     { name = "pytest", specifier = ">=8.0" },
     { name = "ruff", specifier = ">=0.6" },
 ]
