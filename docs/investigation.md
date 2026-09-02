@@ -149,12 +149,119 @@ entirely, at the cost of disabling IPv6 permanently. Not done — the record is
 NDW's bug to fix, and worth raising with mail@servicedeskndw.nu alongside the
 CORS ask.
 
+## 8. Why some chargers never appear at all
+
+Jan noticed two local chargers that the dashboard never shows: the WUR Impulse
+building at Stippeneng 2 (51.983541, 5.662421 — inside the default bounding box)
+and the one at Unilever.
+
+They are absent from NDW **entirely**, not merely from our bounding box:
+
+- A Wageningen-wide dynamic query (`5.63,51.955,5.72,51.995`) returns 174
+  stations. None is Stippeneng, Bronland, Impulse or Unilever.
+- The national static file (§9) holds **80,300 locations**. Zero hits for any of
+  those four terms — while the positive controls all match: Akkermaalsbos 1,
+  Bornsesteeg 2, Droevendaalsesteeg 2, `Wageningen` 213. So the search was sound
+  and the absence is real, not a broken grep.
+- Nor is it filed under some other address: every static location within 400 m of
+  Impulse's coordinates is one of the four stations we already show.
+
+Every campus location NDW *does* carry is flagged `publish: true` — the OCPI field
+by which an operator permits publication.
+
+**The reason:** AFIR (EU 2023/1804) mandates reporting only for *publicly
+accessible* recharging points. A badge- or permit-restricted charger is out of
+scope and never reaches the national access point. So no source built on NDW will
+ever show these, and widening the bbox cannot help.
+
+Unilever is presumably straightforwardly private. Stippeneng 2 is the more
+surprising one, since 50five runs the *public* WUR points at Akkermaalsbos 2 and
+Droevendaalsesteeg 1 and reports both. Whether Impulse is genuinely
+access-restricted or simply never registered is not answerable from NDW — it is a
+question for WUR facilities or 50five.
+
+## 9. The bulk OCPI files — per-socket status after all
+
+`https://opendata.ndw.nu/charging_point_locations_ocpi.json.gz`
+~18 MB gzipped, ~198 MB raw, 80,300 locations, refreshed continuously. Keyless,
+and like everything else on NDW it sends no CORS headers.
+
+**This contradicts §6 and the project brief.** The claim that individual sockets
+are not identified is true only of the *dynamic bbox GeoJSON endpoint*. The bulk
+file carries full per-EVSE detail — `evse_id`, `uid`, `physical_reference`,
+per-socket `status` and per-socket `last_updated`:
+
+```
+NL505E1234766622*1  ref=04000523  1ph  UNKNOWN     updated 2026-09-02T16:05:54Z
+NL505E1234791607*1  ref=04000450  1ph  UNKNOWN     updated 2026-09-02T16:06:02Z
+NL505E1234792747*1  ref=04000391  1ph  AVAILABLE   updated 2026-09-02T13:22:36Z
+NL505E1234792938*1  ref=04000572  3ph  AVAILABLE   updated 2026-09-02T14:03:30Z
+NL505E1234829427*1  ref=04000602  1ph  UNKNOWN     updated 2026-08-26T08:19:03Z
+NL505E1234829462*1  ref=04000376  1ph  UNKNOWN     updated 2026-08-26T09:04:04Z
+```
+
+All six ids match the archived ChargeFinder sample exactly (modulo `*`
+separators). **Per-socket detail was the only remaining reason to keep
+`archive/`** — NDW provides it, so the origin-locked, AES-decrypting ChargeFinder
+path can be retired rather than maintained.
+
+The companion file is
+`https://opendata.ndw.nu/charging_point_tariffs_ocpi.json.gz`, keyed by the
+`tariff_ids` in the dynamic feed. Locally those resolve to two distinct sets:
+`417371606` for both 50five stations, `238` for Qwello.
+
+### UNKNOWN is not occupied
+
+At the moment above, Akkermaalsbos 2 tallied `AVAILABLE: 2, UNKNOWN: 4` while the
+dynamic feed reported `2 of 6 free`. So `available` counts only AVAILABLE, and
+every UNKNOWN socket is silently lumped in with the occupied ones.
+
+Nobody was charging on those four. Two of them had not reported since
+2026-08-26 — a week. The dashboard renders this as "2 of 6 free", which reads as
+"four cars are plugged in", and that is not what the data says.
+
+This also settles the disagreement recorded in the brief, where NDW and
+ChargeFinder differed on the 22 kW socket and ChargeFinder had been "blind" to two
+sockets for days. Neither source was wrong. The operator stops reporting on
+individual sockets for days at a time, and the two sources merely disagreed about
+how to present that silence.
+
+### The Bornsesteeg 4 double entry — two posts, one coordinate
+
+Two Qwello stations share the address, and it is worth recording that they are
+**genuinely two physical units**, not a duplicate registration:
+
+```
+8b634978-40ea-4ec3-9812-69a885878be2   NLQWCE3CW4711 ref=CPHCR3R1  CHARGING
+                                       NLQWCE3CW4712 ref=CPHCR3R2  AVAILABLE
+631dc33b-24f8-4fb3-9400-51a9782025f1   NLQWCE3CW4721 ref=CPRR95F1  AVAILABLE
+                                       NLQWCE3CW4722 ref=CPRR95F2  CHARGING
+```
+
+Distinct EVSE ids, distinct uids, distinct physical references, and independent
+live statuses. Both are 2 × 17.25 kW AC3 on tariff `238`.
+
+**What needs checking on the ground:** the two records carry *identical*
+coordinates, 51.982120, 5.665258, to six decimal places — the operator reports one
+location for both posts rather than each post's own position. So the data cannot
+tell you which physical post at Bornsesteeg 4 is which, and neither can the
+dashboard: the station picker renders two indistinguishable entries. Matching
+`CPHCR3R*` and `CPRR95F*` to the actual posts requires reading the labels on the
+hardware. Qwello's duplicate-address pattern repeats across Wageningen
+(Niemeijerstraat 25, Olympiaplein 13, Plantsoen 3, Stadsbrink 1 and others all
+appear twice), so this is how they register, not a one-off error.
+
+Worth noting for contrast: Qwello reports real `CHARGING` states here, while
+50five's sockets sit at `UNKNOWN` for days. Reporting quality is per-operator.
+
 ## Sources
 
 - <https://docs.ndw.nu/data-uitwisseling/interface-beschrijvingen/dafne-api/>
 - <https://docs.ndw.nu/en/data-uitwisseling/interface-beschrijvingen/dafne-api/dafne_api_consumer_pull/>
 - <https://www.ndw.nu/producten-en-diensten/dataportalen/dot-nl>
 - <https://docs.ndw.nu/faq/DOT-NL/>
+- <https://opendata.ndw.nu/charging_point_locations_ocpi.json.gz>
+- <https://opendata.ndw.nu/charging_point_tariffs_ocpi.json.gz>
 - <https://github.com/Platzii/homeassistant-evcnet>
 - <https://github.com/cyberjunky/python-shellrecharge>
 - <https://www.fleet-mobility.nl/fleet-mobility/internationaal/2024/12/50five-neemt-private-laadpalen-shell-recharge-solutions-over/>

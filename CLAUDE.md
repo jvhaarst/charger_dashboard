@@ -95,11 +95,17 @@ blackholes, which cost 15s on every cache miss. See `docs/investigation.md` §7.
   not necessarily staleness, and the dashboard deliberately shows it as the
   operator's timestamp rather than disguising it as freshness. The live run later
   the same day saw it five minutes fresh, which confirms it does move.
-- Availability is grouped by power level, not per socket. "3 of 5 free at 7.4 kW" is
-  the finest grain available; individual sockets are not identified in this feed.
-- NDW and ChargeFinder disagreed on the 22 kW socket at the same moment (NDW: free,
-  ChargeFinder: charging), and ChargeFinder had been blind to two sockets for days.
-  Which is right is an open question that accumulated history should settle.
+- The **bbox endpoint** groups availability by power level, not per socket — "3 of
+  5 free at 7.4 kW" is its finest grain. The **bulk OCPI file** does identify
+  individual sockets (`evse_id`, `physical_reference`, per-socket status), which
+  is not what this brief originally claimed. See `docs/investigation.md` §9.
+- "Available" counts only `AVAILABLE`. Sockets reporting `UNKNOWN` are lumped in
+  with the occupied ones, so "2 of 6 free" can mean 2 free, 0 occupied and 4
+  unknown — 50five's sockets sit at UNKNOWN for days at a time.
+- NDW and ChargeFinder once disagreed on the 22 kW socket, and ChargeFinder had
+  been blind to two sockets for days. **Settled:** neither is wrong — the operator
+  stops reporting individual sockets for days, and the two sources merely present
+  that silence differently. See `docs/investigation.md` §9.
 
 ## Next steps, in rough order of value
 
@@ -131,6 +137,7 @@ why the server exists. All of these read **ChargeFinder**, not NDW.
 
 ChargeFinder's API decrypts with an **AES-GCM key hardcoded in their frontend
 bundle** (`/js/app.js`, next to `crypto.subtle.importKey`), and 403s any foreign
-`Origin`. It gives per-socket detail and "available since" durations that NDW does
-not — but it can break on any deploy of theirs. NDW is the better foundation; this
-is kept for the per-socket angle only.
+`Origin`. It was kept for its per-socket detail — but NDW's bulk OCPI file turns
+out to carry the same sockets, with matching EVSE ids (`docs/investigation.md`
+§9), so that reason is gone. Only the "available since" durations are still
+exclusive to ChargeFinder. Retiring `archive/` is now a live option.
