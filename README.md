@@ -53,7 +53,10 @@ the Allego chargers on Tarthorst are a few hundred metres further out.
 - `GET /api/history?hours=48&station=<id>` — recorded observations
 - `GET /api/occupancy?hours=168&station=<id>` — socket-hours in use, capacity,
   utilisation, and a profile by hour of day
-- `GET /healthz` — observation count, age of last successful fetch, last error
+- `GET /livez` — liveness: 200 while the process serves. Touches no disk and
+  no network, so a storage stall cannot make a healthy pod look dead.
+- `GET /healthz` — readiness: observation count, age of last successful fetch,
+  age of the socket snapshot, last error. Reads the history database.
 
 ## Deploying
 

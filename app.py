@@ -16,6 +16,9 @@ Configuration is environment-only:
                        (default 10; 0 shows every registered station)
     NDW_OCPI_SECONDS   how often to refresh which sockets are dead, from the
                        bulk OCPI file (default 3600; 0 disables the feature)
+
+Endpoints worth knowing apart: /livez is liveness and touches nothing, /healthz
+is readiness and reads the history database.
     NDW_DB             SQLite path (default data/history.sqlite3)
     NDW_CACHE_DIR      response cache directory (default data/cache)
     NDW_RETAIN_DAYS    history retention, 0 keeps everything (default 365)
@@ -187,6 +190,18 @@ def create_app() -> Flask:
             poll_minutes=max(app.config["POLL_SECONDS"] // 60, 1),
         )
         return jsonify({"hours": hours, **stats})
+
+    @app.route("/livez")
+    def livez():
+        """Liveness only: is this process serving requests?
+
+        Touches no disk and no network, deliberately. `/healthz` reads the
+        history database, and that volume can stall for ten seconds at a time
+        while longhorn rebuilds a replica — pointing liveness at it turned a slow
+        disk into a restart loop and killed a healthy process 18 times over.
+        Readiness may fail during a storage stall; liveness must not.
+        """
+        return "ok\n", 200, {"Content-Type": "text/plain; charset=utf-8"}
 
     @app.route("/healthz")
     def healthz():

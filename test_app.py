@@ -496,6 +496,28 @@ def test_current_marks_dead_sockets_when_the_ocpi_snapshot_is_available(
     assert body["sockets_at"] is not None
 
 
+def test_livez_does_not_touch_the_history_volume(tmp_path, monkeypatch):
+    """Liveness must not depend on storage.
+
+    /healthz reads the store, and on a longhorn rebuild that volume stalled for
+    up to 10s at a time — with a 1s probe timeout, Kubernetes killed a healthy
+    process 18 times. Liveness answers "is this process serving", nothing more.
+    """
+    monkeypatch.setenv("NDW_FIXTURE", str(FIXTURE))
+    monkeypatch.setenv("NDW_DB", str(tmp_path / "h.sqlite3"))
+    monkeypatch.setenv("NDW_CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setenv("NDW_OCPI_SECONDS", "0")
+    import app as app_module
+
+    application = app_module.create_app()
+
+    def boom(*args, **kwargs):
+        raise AssertionError("liveness must not touch the history volume")
+
+    application.extensions["store"].count = boom
+    assert application.test_client().get("/livez").status_code == 200
+
+
 def test_healthz_reports_state(client):
     body = client.get("/healthz").get_json()
     assert body["ok"] is True
