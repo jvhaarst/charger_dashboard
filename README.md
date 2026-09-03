@@ -40,7 +40,7 @@ All environment variables, all optional:
 | `NDW_OCPI_FIXTURE` | – | Read this gzipped OCPI file instead of downloading. Tests and offline demos. |
 | `NDW_DB` | `data/history.sqlite3` | History database. |
 | `NDW_CACHE_DIR` | `data/cache` | On-disk response cache. |
-| `NDW_RETAIN_DAYS` | `90` | History retention; `0` keeps everything. |
+| `NDW_RETAIN_DAYS` | `365` | History retention, both tables; `0` keeps everything. A year of these four stations is roughly 50 MB. |
 | `NDW_FIXTURE` | – | Read this JSON file instead of calling NDW. Offline demos and tests. |
 
 A wider box picks up more stations and the dashboard grows a station picker —
@@ -51,6 +51,8 @@ the Allego chargers on Tarthorst are a few hundred metres further out.
 - `GET /` — the dashboard
 - `GET /api/current` — parsed stations as they are now
 - `GET /api/history?hours=48&station=<id>` — recorded observations
+- `GET /api/occupancy?hours=168&station=<id>` — socket-hours in use, capacity,
+  utilisation, and a profile by hour of day
 - `GET /healthz` — observation count, age of last successful fetch, last error
 
 ## Deploying
@@ -91,6 +93,24 @@ uv run ruff format .
 ```
 
 The tests run against `fixture.json`, a real recorded response.
+
+## History and occupancy
+
+Two tables, written at the rate their sources move:
+
+| Table | Written | One row per | Size |
+|---|---|---|---|
+| `observations` | every poll (5 min) | power group, with `available`/`total`/`in_use`/`dead` | ~3.3 MB/month |
+| `socket_states` | every OCPI refresh (1 h) | socket, with its EVSE id and status | ~0.8 MB/month |
+
+`in_use` and `dead` are `NULL` when the socket detail was unavailable, so
+occupancy sums skip those intervals instead of counting a gap as idle.
+
+Socket identity exists only in the bulk OCPI file, so `socket_states` is as
+fine-grained as the hourly refresh: it answers *which socket does the work and
+which is dead*, not how long an individual session lasted. Occupancy totals come
+from `observations` instead and are accurate to the five-minute poll, because
+`in_use` is derived from the fast feed.
 
 ## Data notes
 

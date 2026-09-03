@@ -18,7 +18,7 @@ Configuration is environment-only:
                        bulk OCPI file (default 3600; 0 disables the feature)
     NDW_DB             SQLite path (default data/history.sqlite3)
     NDW_CACHE_DIR      response cache directory (default data/cache)
-    NDW_RETAIN_DAYS    history retention, 0 keeps everything (default 90)
+    NDW_RETAIN_DAYS    history retention, 0 keeps everything (default 365)
     NDW_FIXTURE        read this JSON file instead of calling NDW (offline demo)
 """
 
@@ -59,7 +59,7 @@ def create_app() -> Flask:
         MERGE_METRES=_int_env("NDW_MERGE_METRES", 10),
         OCPI_SECONDS=_int_env("NDW_OCPI_SECONDS", 3600),
         OCPI_FIXTURE=os.environ.get("NDW_OCPI_FIXTURE") or None,
-        RETAIN_DAYS=_int_env("NDW_RETAIN_DAYS", 90),
+        RETAIN_DAYS=_int_env("NDW_RETAIN_DAYS", 365),
         CACHE_DIR=Path(os.environ.get("NDW_CACHE_DIR", "data/cache")),
         FIXTURE=os.environ.get("NDW_FIXTURE") or None,
     )
@@ -167,7 +167,7 @@ def create_app() -> Flask:
 
     @app.route("/api/history")
     def api_history():
-        hours = min(max(request.args.get("hours", default=48, type=int), 1), 24 * 90)
+        hours = min(max(request.args.get("hours", default=48, type=int), 1), 24 * 400)
         station_id = request.args.get("station")
         since = int(time.time() // 60) - hours * 60
         samples = [

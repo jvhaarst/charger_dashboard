@@ -49,7 +49,8 @@ request given the AFIR mandate, and worth doing.
 app.py               Flask: routes, background poller, config from env
 ndw.py               DOT-NL client — TTL cache, stale fallback, bbox validation
 ocpi.py              which sockets are dead, streamed from the bulk OCPI file
-store.py             SQLite history, one row per polled minute
+store.py             SQLite history: observations per group per poll,
+                     socket_states per socket per OCPI refresh
 templates/index.html the dashboard (no build step, no CDN, inline CSS/JS)
 seed_demo.py         synthetic history, for looking at charts before data accrues
 test_app.py          15 tests, no network (NDW_FIXTURE stands in)
