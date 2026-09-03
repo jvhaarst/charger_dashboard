@@ -5,6 +5,7 @@ from __future__ import annotations
 import gzip
 import json
 import os
+import time
 from pathlib import Path
 
 import pytest
@@ -294,6 +295,25 @@ def test_extract_lists_each_socket_with_its_state(tmp_path):
         ("NL505E1*1", "CHARGING"),
         ("NL505E2*1", "UNKNOWN"),
     ]
+
+
+def test_fetch_ignores_a_cache_written_in_an_older_format(tmp_path):
+    """A shape change must read as a miss, not as good data.
+
+    The snapshot format changed once already, and the old file stayed within its
+    TTL: annotate() found no "groups" key, silently did nothing, and the cache
+    hit meant no socket states were recorded either.
+    """
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    (cache / "ocpi-dead.json").write_text(
+        json.dumps({"ts": time.time(), "snapshot": {"s1": {"AC1": {"dead": 2}}}}),
+        encoding="utf-8",
+    )
+    bulk = _ocpi_bulk(tmp_path, [{"id": "s1", "evses": [_evse("UNKNOWN")]}])
+    snapshot, from_cache = ocpi.fetch({"s1"}, cache_dir=cache, fixture=str(bulk))
+    assert from_cache is False, "an unversioned cache must not be trusted"
+    assert snapshot["s1"]["groups"]["AC1"]["dead"] == 1
 
 
 def test_annotate_splits_the_not_free_sockets():

@@ -49,6 +49,12 @@ POWER_TYPES = {
     "DC": "DC",
 }
 
+# Bumped whenever the cached snapshot's shape changes. A cached file without
+# this exact version is treated as a miss: when "evses" was added, the previous
+# format sat inside its TTL and read as good data, so annotate() quietly did
+# nothing and no socket states were recorded until the hour was up.
+CACHE_VERSION = 2
+
 _DECODER = json.JSONDecoder()
 
 
@@ -186,6 +192,9 @@ def fetch(
         cached = json.loads(snapshot_path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         cached = None
+    if cached is not None and cached.get("v") != CACHE_VERSION:
+        LOGGER.info("ignoring an OCPI cache written in an older format")
+        cached = None
     if cached and time.time() - cached.get("ts", 0) <= ttl:
         return cached["snapshot"], True
 
@@ -211,6 +220,7 @@ def fetch(
             temp.unlink(missing_ok=True)
 
     snapshot_path.write_text(
-        json.dumps({"ts": time.time(), "snapshot": snapshot}), encoding="utf-8"
+        json.dumps({"v": CACHE_VERSION, "ts": time.time(), "snapshot": snapshot}),
+        encoding="utf-8",
     )
     return snapshot, False
