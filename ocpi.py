@@ -93,13 +93,15 @@ def _locations(handle, chunk: int = 1 << 20) -> Iterator[dict[str, Any]]:
         yield record
 
 
-def extract(path: Path, wanted: set[str]) -> dict[str, dict[str, dict[str, int]]]:
-    """Count dead sockets per station, grouped by power type.
+def extract(path: Path, wanted: set[str]) -> dict[str, dict[str, Any]]:
+    """Read the sockets of the wanted stations out of the bulk file.
 
-    Returns `{station_id: {power_type: {"dead": n, "total": n}}}`, holding only
-    the stations asked for.
+    Returns `{station_id: {"groups": {power_type: {"dead": n, "total": n}},
+    "evses": [{"evse_id", "status", "power_type"}]}}` — the counts drive the
+    dashboard's free/in-use/dead split, the list is what gets recorded as
+    per-socket history.
     """
-    found: dict[str, dict[str, dict[str, int]]] = {}
+    found: dict[str, dict[str, Any]] = {}
     if not wanted:
         return found
     with gzip.open(path, "rt", encoding="utf-8") as handle:
@@ -108,26 +110,35 @@ def extract(path: Path, wanted: set[str]) -> dict[str, dict[str, dict[str, int]]
             if station not in wanted:
                 continue
             groups: dict[str, dict[str, int]] = {}
+            evses: list[dict[str, Any]] = []
             for evse in record.get("evses") or []:
                 status = evse.get("status")
                 if status in IGNORED_STATUSES:
                     continue
                 connectors = evse.get("connectors") or [{}]
-                raw = connectors[0].get("power_type")
-                group = groups.setdefault(
-                    POWER_TYPES.get(raw, raw or "?"), {"dead": 0, "total": 0}
+                power_type = POWER_TYPES.get(
+                    connectors[0].get("power_type"),
+                    connectors[0].get("power_type") or "?",
                 )
+                group = groups.setdefault(power_type, {"dead": 0, "total": 0})
                 group["total"] += 1
                 if status in DEAD_STATUSES:
                     group["dead"] += 1
-            found[station] = groups
+                evses.append(
+                    {
+                        "evse_id": evse.get("evse_id") or evse.get("uid"),
+                        "status": status,
+                        "power_type": power_type,
+                    }
+                )
+            found[station] = {"groups": groups, "evses": evses}
             if len(found) == len(wanted):
                 break
     return found
 
 
 def annotate(
-    stations: list[dict[str, Any]], snapshot: dict[str, dict[str, dict[str, int]]]
+    stations: list[dict[str, Any]], snapshot: dict[str, dict[str, Any]]
 ) -> None:
     """Split each group's not-free sockets into in-use and dead, in place.
 
@@ -137,7 +148,8 @@ def annotate(
     for station in stations:
         dead_by_type: dict[str, int] = {}
         for member in station.get("members") or [station.get("id")]:
-            for power_type, counts in snapshot.get(ocpi_id(member), {}).items():
+            station_snapshot = snapshot.get(ocpi_id(member)) or {}
+            for power_type, counts in (station_snapshot.get("groups") or {}).items():
                 dead_by_type[power_type] = dead_by_type.get(power_type, 0) + counts.get(
                     "dead", 0
                 )
@@ -161,7 +173,7 @@ def fetch(
     ttl: float = 3600.0,
     timeout: float | tuple[float, float] = (3.05, 120.0),
     fixture: str | None = None,
-) -> tuple[dict[str, dict[str, dict[str, int]]], bool]:
+) -> tuple[dict[str, dict[str, Any]], bool]:
     """Return (snapshot, from_cache), refetching the bulk file only past `ttl`.
 
     A failed fetch falls back to the last good snapshot at any age: a stale idea

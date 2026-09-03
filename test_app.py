@@ -252,7 +252,7 @@ def test_extract_counts_dead_sockets_per_power_type(tmp_path):
             }
         ],
     )
-    groups = ocpi.extract(path, {"s1"})["s1"]
+    groups = ocpi.extract(path, {"s1"})["s1"]["groups"]
     # UNKNOWN + OUTOFORDER are dead; CHARGING is not.
     assert groups["AC1"]["dead"] == 2
     assert groups["AC3"]["dead"] == 1
@@ -263,7 +263,37 @@ def test_extract_ignores_removed_and_planned_sockets(tmp_path):
         tmp_path,
         [{"id": "s1", "evses": [_evse("REMOVED"), _evse("PLANNED"), _evse("UNKNOWN")]}],
     )
-    assert ocpi.extract(path, {"s1"})["s1"]["AC1"]["dead"] == 1
+    assert ocpi.extract(path, {"s1"})["s1"]["groups"]["AC1"]["dead"] == 1
+
+
+def test_extract_lists_each_socket_with_its_state(tmp_path):
+    path = _ocpi_bulk(
+        tmp_path,
+        [
+            {
+                "id": "s1",
+                "evses": [
+                    {
+                        "evse_id": "NL505E1*1",
+                        "status": "CHARGING",
+                        "connectors": [{"power_type": "AC_1_PHASE"}],
+                    },
+                    {
+                        "evse_id": "NL505E2*1",
+                        "status": "UNKNOWN",
+                        "connectors": [{"power_type": "AC_1_PHASE"}],
+                    },
+                    # Not built yet: no socket to record a state for.
+                    {"evse_id": "NL505E3*1", "status": "PLANNED", "connectors": []},
+                ],
+            }
+        ],
+    )
+    evses = ocpi.extract(path, {"s1"})["s1"]["evses"]
+    assert [(e["evse_id"], e["status"]) for e in evses] == [
+        ("NL505E1*1", "CHARGING"),
+        ("NL505E2*1", "UNKNOWN"),
+    ]
 
 
 def test_annotate_splits_the_not_free_sockets():
@@ -274,7 +304,7 @@ def test_annotate_splits_the_not_free_sockets():
             "groups": [{"power_type": "AC1", "available": 3, "total": 6}],
         }
     ]
-    ocpi.annotate(stations, {"x": {"AC1": {"dead": 2}}})
+    ocpi.annotate(stations, {"x": {"groups": {"AC1": {"dead": 2}}}})
     group = stations[0]["groups"][0]
     assert (group["available"], group["dead"], group["in_use"]) == (3, 2, 1)
 
@@ -288,7 +318,7 @@ def test_annotate_clamps_when_a_dead_socket_came_back():
             "groups": [{"power_type": "AC1", "available": 6, "total": 6}],
         }
     ]
-    ocpi.annotate(stations, {"x": {"AC1": {"dead": 2}}})
+    ocpi.annotate(stations, {"x": {"groups": {"AC1": {"dead": 2}}}})
     group = stations[0]["groups"][0]
     assert (group["dead"], group["in_use"]) == (0, 0), "in_use must never go negative"
 
@@ -301,7 +331,10 @@ def test_annotate_sums_across_the_members_of_a_merged_site():
             "groups": [{"power_type": "AC3", "available": 2, "total": 4}],
         }
     ]
-    ocpi.annotate(stations, {"a": {"AC3": {"dead": 1}}, "b": {"AC3": {"dead": 1}}})
+    ocpi.annotate(
+        stations,
+        {"a": {"groups": {"AC3": {"dead": 1}}}, "b": {"groups": {"AC3": {"dead": 1}}}},
+    )
     group = stations[0]["groups"][0]
     assert (group["dead"], group["in_use"]) == (2, 0)
 
@@ -318,25 +351,72 @@ def test_annotate_leaves_stations_untouched_without_a_snapshot():
     assert "dead" not in stations[0]["groups"][0]
 
 
+def _stations(available=3, in_use=1, dead=1, total=5):
+    return [
+        {
+            "id": "NL-LMS-x",
+            "groups": [
+                {
+                    "power_kw": 7.4,
+                    "available": available,
+                    "total": total,
+                    "in_use": in_use,
+                    "dead": dead,
+                }
+            ],
+        }
+    ]
+
+
 def test_store_ignores_a_minute_it_already_has(tmp_path):
     from store import Store
 
     store = Store(tmp_path / "h.sqlite3")
     # 1_000_000 // 60 == 16666, and so does 1_000_010 — the same minute.
-    assert store.add(1_000_000, {"a": 1}) is True
-    assert store.add(1_000_010, {"a": 2}) is False
-    assert store.add(1_000_100, {"a": 3}) is True
+    assert store.add(1_000_000, _stations()) == 1
+    assert store.add(1_000_010, _stations()) == 0
+    assert store.add(1_000_100, _stations()) == 1
     assert store.count() == 2
 
 
-def test_store_prunes_old_rows(tmp_path):
+def test_store_prunes_both_tables(tmp_path):
     from store import Store
 
     store = Store(tmp_path / "h.sqlite3")
-    store.add(1_000_000, {"a": 1})
-    store.add(2_000_000, {"a": 2})
-    assert store.prune(int(1_500_000 // 60)) == 1
+    store.add(1_000_000, _stations())
+    store.add(2_000_000, _stations())
+    store.add_socket_states(
+        1_000_000, [{"station": "NL-LMS-x", "evse_id": "e1", "status": "CHARGING"}]
+    )
+    # One observation row and one socket row are older than the cutoff.
+    assert store.prune(int(1_500_000 // 60)) == 2
     assert store.count() == 1
+
+
+def test_occupancy_totals_socket_hours(tmp_path):
+    from store import Store
+
+    store = Store(tmp_path / "h.sqlite3")
+    # Three polls, two sockets in use each, at the default five-minute cadence.
+    for i in range(3):
+        store.add(1_000_000 + i * 300, _stations(available=2, in_use=2, dead=1))
+    stats = store.occupancy(0)
+    assert stats["samples"] == 3
+    # 3 polls x 2 sockets x 5 minutes = 30 socket-minutes = 0.5 socket-hours.
+    assert stats["socket_hours_in_use"] == 0.5
+    assert stats["socket_hours_capacity"] == 1.25
+    assert stats["utilisation"] == 0.4
+
+
+def test_occupancy_skips_rows_without_socket_detail(tmp_path):
+    from store import Store
+
+    store = Store(tmp_path / "h.sqlite3")
+    store.add(1_000_000, _stations(in_use=2))
+    # No OCPI snapshot: in_use is unknown, and guessing would be worse.
+    store.add(1_000_300, _stations(in_use=None, dead=None))
+    stats = store.occupancy(0)
+    assert stats["samples"] == 1, "a gap must not be counted as idle"
 
 
 def test_current_endpoint_returns_the_station(client):

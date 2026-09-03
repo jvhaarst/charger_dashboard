@@ -78,24 +78,6 @@ def create_app() -> Flask:
     }
     app.extensions["state"] = state
 
-    def observe() -> dict[str, Any]:
-        """Fetch (cached) and record the observation. Returns the collection."""
-        collection, from_cache = ndw.fetch(
-            app.config["BBOX"],
-            cache_dir=app.config["CACHE_DIR"],
-            ttl=app.config["CACHE_SECONDS"],
-            fixture=app.config["FIXTURE"],
-        )
-        now = time.time()
-        latest = store.latest_minute()
-        due = latest is None or (now // 60 - latest) * 60 >= app.config["POLL_SECONDS"]
-        if due:
-            store.add(now, collection)
-        if not from_cache:
-            state["last_fetch"] = now
-            state["last_error"] = None
-        return collection
-
     def sockets(stations: list[dict[str, Any]]) -> dict[str, Any]:
         """Refresh the dead-socket snapshot and fold it into `stations`.
 
@@ -119,8 +101,42 @@ def create_app() -> Flask:
         if not cached:
             state["ocpi_at"] = time.time()
             state["ocpi_error"] = None
+            # Socket identity only exists here, so this is the one chance to
+            # record it. Written per refresh, not per poll, or it would repeat
+            # the same states a dozen times an hour.
+            rows = [
+                {"station": member, "evse_id": e["evse_id"], "status": e["status"]}
+                for station in stations
+                for member in station.get("members") or [station["id"]]
+                for e in (snapshot.get(ocpi.ocpi_id(member)) or {}).get("evses") or []
+            ]
+            written = store.add_socket_states(time.time(), rows)
+            if written:
+                LOGGER.info("recorded %s socket states", written)
         ocpi.annotate(stations, snapshot)
         return snapshot
+
+    def observe() -> list[dict[str, Any]]:
+        """Fetch (cached), annotate and record. Returns the parsed stations."""
+        collection, from_cache = ndw.fetch(
+            app.config["BBOX"],
+            cache_dir=app.config["CACHE_DIR"],
+            ttl=app.config["CACHE_SECONDS"],
+            fixture=app.config["FIXTURE"],
+        )
+        stations = ndw.parse(collection, app.config["MERGE_METRES"])
+        # Annotate before storing: in_use is what occupancy is computed from,
+        # and it cannot be recovered later from a stored free count alone.
+        sockets(stations)
+        now = time.time()
+        latest = store.latest_minute()
+        due = latest is None or (now // 60 - latest) * 60 >= app.config["POLL_SECONDS"]
+        if due:
+            store.add(now, stations)
+        if not from_cache:
+            state["last_fetch"] = now
+            state["last_error"] = None
+        return stations
 
     app.extensions["observe"] = observe
     app.extensions["sockets"] = sockets
@@ -132,12 +148,10 @@ def create_app() -> Flask:
     @app.route("/api/current")
     def api_current():
         try:
-            collection = observe()
+            stations = observe()
         except ndw.NdwError as err:
             state["last_error"] = str(err)
             return jsonify({"error": str(err)}), 503
-        stations = ndw.parse(collection, app.config["MERGE_METRES"])
-        sockets(stations)
         return jsonify(
             {
                 "fetched_at": datetime.now(UTC).isoformat(timespec="seconds"),
@@ -156,29 +170,23 @@ def create_app() -> Flask:
         hours = min(max(request.args.get("hours", default=48, type=int), 1), 24 * 90)
         station_id = request.args.get("station")
         since = int(time.time() // 60) - hours * 60
-        series = []
-        for minute, collection in store.history(since):
-            for station in ndw.parse(collection, app.config["MERGE_METRES"]):
-                if station_id and station["id"] != station_id:
-                    continue
-                series.append(
-                    {
-                        "t": minute * 60,
-                        "station": station["id"],
-                        "available": station["available"],
-                        "total": station["total"],
-                        "last_updated": station["last_updated"],
-                        "groups": [
-                            {
-                                "power_kw": g["power_kw"],
-                                "available": g["available"],
-                                "total": g["total"],
-                            }
-                            for g in station["groups"]
-                        ],
-                    }
-                )
-        return jsonify({"hours": hours, "station": station_id, "samples": series})
+        samples = [
+            sample
+            for sample in store.history(since)
+            if not station_id or sample["station"] == station_id
+        ]
+        return jsonify({"hours": hours, "station": station_id, "samples": samples})
+
+    @app.route("/api/occupancy")
+    def api_occupancy():
+        hours = min(max(request.args.get("hours", default=168, type=int), 1), 24 * 400)
+        since = int(time.time() // 60) - hours * 60
+        stats = store.occupancy(
+            since,
+            station=request.args.get("station"),
+            poll_minutes=max(app.config["POLL_SECONDS"] // 60, 1),
+        )
+        return jsonify({"hours": hours, **stats})
 
     @app.route("/healthz")
     def healthz():
@@ -219,10 +227,7 @@ def _start_poller(app: Flask) -> None:
     def loop() -> None:
         while True:
             try:
-                collection = observe()
-                app.extensions["sockets"](
-                    ndw.parse(collection, app.config["MERGE_METRES"])
-                )
+                observe()
                 retain = app.config["RETAIN_DAYS"]
                 if retain:
                     cutoff = int(time.time() // 60) - retain * 24 * 60
