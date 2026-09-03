@@ -63,6 +63,7 @@
   .chart { display: flex; align-items: flex-end; gap: 2px; height: 120px; margin-top: 4px; }
   .col { flex: 1 1 auto; min-width: 2px; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; background: var(--track); border-radius: 3px; overflow: hidden; }
   .col .fill { background: var(--good); border-radius: 3px 3px 0 0; min-height: 2px; }
+  .col .fill.busy { background: var(--busy); }
   .axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 6px; }
   .ylab { font-size: 11px; color: var(--muted); }
   .empty { color: var(--muted); font-size: 14px; padding: 8px 0; }
@@ -115,6 +116,33 @@
       <button id="toggle-table" aria-pressed="false">Show as table</button>
     </div>
     <div class="scroll" id="table-wrap" hidden style="margin-top:10px"></div>
+  </div>
+
+  <div class="card" id="occ-card" hidden>
+    <h2>Occupancy</h2>
+    <div class="bar" style="margin-bottom:10px">
+      <button data-occ="24" aria-pressed="false">24 h</button>
+      <button data-occ="168" aria-pressed="true">7 d</button>
+      <button data-occ="720" aria-pressed="false">30 d</button>
+      <span class="stamp" id="occ-note" style="margin-left:auto"></span>
+    </div>
+    <div class="hero" style="gap:24px">
+      <div>
+        <div class="n" id="occ-pct" style="font-size:34px">—</div>
+        <div class="stamp">of socket-time in use</div>
+      </div>
+      <div>
+        <div class="n" id="occ-hours" style="font-size:34px; color:var(--fg)">—</div>
+        <div class="stamp">socket-hours charged</div>
+      </div>
+      <div>
+        <div class="n" id="occ-dead" style="font-size:34px; color:var(--muted)">—</div>
+        <div class="stamp">socket-hours not reporting</div>
+      </div>
+    </div>
+    <div class="ylab" style="margin-top:14px">Share of sockets in use, by hour of day</div>
+    <div class="chart" id="occ-hourly" style="height:90px"></div>
+    <div class="axis"><span>00:00</span><span>12:00</span><span>23:00</span></div>
   </div>
 
   <div class="card" id="byhour-card" hidden>
@@ -241,6 +269,36 @@ async function loadCurrent() {
         "&ldquo;occupied&rdquo;.</p>");
 }
 
+let occHours = 168;
+
+async function loadOccupancy() {
+  const res = await fetch(`api/occupancy?hours=${occHours}&station=${encodeURIComponent(current || "")}`,
+    { cache: "no-store" });
+  const d = await res.json();
+  // Nothing to show until some observations carry the socket detail.
+  if (!d.samples) {
+    $("occ-card").hidden = true;
+    return;
+  }
+  $("occ-card").hidden = false;
+  $("occ-pct").textContent = d.utilisation === null ? "—" : Math.round(d.utilisation * 100) + "%";
+  $("occ-hours").textContent = d.socket_hours_in_use.toFixed(1);
+  $("occ-dead").textContent = d.socket_hours_dead.toFixed(1);
+  $("occ-note").textContent =
+    `${d.samples} observation${d.samples === 1 ? "" : "s"} with socket detail` +
+    ` · ${d.socket_hours_capacity.toFixed(0)} socket-hours available`;
+
+  const byHour = new Map(d.by_hour.map((h) => [h.hour, h.utilisation]));
+  $("occ-hourly").innerHTML = Array.from({ length: 24 }, (_, h) => {
+    const u = byHour.get(h);
+    const pct = u === undefined || u === null ? 0 : Math.round(u * 100);
+    const label = u === undefined || u === null
+      ? `${String(h).padStart(2, "0")}:00 — no data`
+      : `${String(h).padStart(2, "0")}:00 — ${pct}% of sockets in use`;
+    return `<div class="col" title="${esc(label)}"><div class="fill busy" style="height:${pct}%"></div></div>`;
+  }).join("");
+}
+
 async function loadHistory() {
   const res = await fetch(`api/history?hours=${hours}&station=${encodeURIComponent(current || "")}`, { cache: "no-store" });
   const data = await res.json();
@@ -322,8 +380,20 @@ function drawByHour() {
 
 $("pick").onchange = (e) => {
   current = e.target.value;
-  loadCurrent().then(loadHistory).catch((err) => showError(err.message));
+  loadCurrent()
+    .then(() => Promise.all([loadHistory(), loadOccupancy()]))
+    .catch((err) => showError(err.message));
 };
+
+for (const btn of document.querySelectorAll("[data-occ]")) {
+  btn.onclick = () => {
+    occHours = Number(btn.dataset.occ);
+    for (const other of document.querySelectorAll("[data-occ]")) {
+      other.setAttribute("aria-pressed", String(other === btn));
+    }
+    loadOccupancy().catch((err) => showError(err.message));
+  };
+}
 
 for (const btn of document.querySelectorAll("[data-hours]")) {
   btn.onclick = () => {
@@ -346,6 +416,7 @@ async function refresh() {
   try {
     await loadCurrent();
     await loadHistory();
+    await loadOccupancy();
   } catch (err) {
     showError(err && err.message ? err.message : String(err));
   }
