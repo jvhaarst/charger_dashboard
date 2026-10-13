@@ -2,7 +2,7 @@
 #
 # Stock multi-arch Python image, so this builds for arm64 (the Raspberry Pi k3s
 # nodes) as well as amd64. uv installs dependencies from the lockfile.
-FROM python:3.14-slim
+FROM python:3.15-slim
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
