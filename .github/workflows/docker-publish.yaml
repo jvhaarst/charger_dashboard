@@ -13,16 +13,11 @@ on:
       - 'VERSION'
       - '.github/workflows/docker-publish.yaml'
   # Pull requests run the same tests and the same amd64 build + smoke test, but
-  # publish nothing. This is what Renovate automerge gates on.
+  # publish nothing. This is what Renovate automerge gates on. Deliberately
+  # unfiltered: `test` and `build` are required status checks in the 'main
+  # protection' ruleset, and a filtered check never reports on a PR that misses
+  # the filter, which leaves that PR permanently unmergeable.
   pull_request:
-    paths:
-      - '*.py'
-      - 'templates/**'
-      - 'pyproject.toml'
-      - 'uv.lock'
-      - 'Dockerfile'
-      - 'VERSION'
-      - '.github/workflows/docker-publish.yaml'
   workflow_dispatch:
 
 permissions:
